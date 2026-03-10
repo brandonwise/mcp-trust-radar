@@ -1,0 +1,31 @@
+{
+  "servers": [
+    {
+      "name": "docs-reader",
+      "repo": "modelcontextprotocol/servers",
+      "permissions": ["docs:read", "search:read"],
+      "stars": 1200,
+      "open_issues": 34,
+      "last_commit_days_ago": 9,
+      "license": "MIT",
+      "maintainers": 6
+    },
+    {
+      "name": "ticket-helper",
+      "permissions": ["issues:read", "issues:update"],
+      "stars": 130,
+      "open_issues": 18,
+      "last_commit_days_ago": 110,
+      "license": "Apache-2.0",
+      "maintainers": 2
+    },
+    {
+      "name": "ops-super-bot",
+      "permissions": ["shell:exec", "filesystem:write", "network:http"],
+      "stars": 22,
+      "open_issues": 45,
+      "last_commit_days_ago": 420,
+      "maintainers": 1
+    }
+  ]
+}

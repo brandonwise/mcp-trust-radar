@@ -1,0 +1,2 @@
+[console_scripts]
+mcp-radar = mcp_trust_radar.cli:main
