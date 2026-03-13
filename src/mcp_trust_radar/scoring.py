@@ -53,6 +53,40 @@ def permission_risk(permissions: List[str]) -> Tuple[float, str, List[str]]:
     return risk, label, notes
 
 
+def auth_posture_penalties(
+    auth_required: Optional[bool], exposed_publicly: Optional[bool]
+) -> Tuple[int, int, List[str]]:
+    notes: List[str] = []
+
+    if auth_required is False:
+        auth_penalty = 18
+        notes.append("No authentication required")
+    elif auth_required is True:
+        auth_penalty = 0
+        notes.append("Authentication required")
+    else:
+        auth_penalty = 0
+        notes.append("Authentication requirement not provided")
+
+    exposure_penalty = 0
+    if exposed_publicly is True:
+        if auth_required is False:
+            exposure_penalty = 12
+            notes.append("Publicly exposed endpoint without authentication")
+        elif auth_required is True:
+            exposure_penalty = 4
+            notes.append("Publicly exposed endpoint (authentication present)")
+        else:
+            exposure_penalty = 8
+            notes.append("Publicly exposed endpoint with unknown authentication posture")
+    elif exposed_publicly is False:
+        notes.append("Not publicly exposed")
+    else:
+        notes.append("Public exposure posture not provided")
+
+    return auth_penalty, exposure_penalty, notes
+
+
 def stale_penalty(days_since_commit: Optional[int]) -> int:
     if days_since_commit is None:
         return 8
@@ -85,6 +119,9 @@ def tier_for(score: int) -> str:
 
 def score_server(server: Server) -> TrustScore:
     permission_score, permission_label, permission_notes = permission_risk(server.permissions)
+    auth_penalty, exposure_penalty, auth_notes = auth_posture_penalties(
+        server.auth_required, server.exposed_publicly
+    )
 
     permission_penalty = int(round(permission_score * 2))  # 0..40
     stale = stale_penalty(server.last_commit_days_ago)
@@ -95,6 +132,8 @@ def score_server(server: Server) -> TrustScore:
 
     score = 100
     score -= permission_penalty
+    score -= auth_penalty
+    score -= exposure_penalty
     score -= stale
     score -= issues
     score += popularity
@@ -111,6 +150,9 @@ def score_server(server: Server) -> TrustScore:
         popularity_bonus=popularity,
         license_adjustment=license_adjustment,
         maintainer_bonus=maintainer_bonus,
+        auth_penalty=auth_penalty,
+        exposure_penalty=exposure_penalty,
+        auth_notes=auth_notes,
     )
 
     return TrustScore(name=server.name, score=score, tier=tier_for(score), breakdown=breakdown)
