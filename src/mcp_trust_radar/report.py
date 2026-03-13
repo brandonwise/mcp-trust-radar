@@ -16,6 +16,9 @@ def to_dict(scores: List[TrustScore]) -> dict:
                     "permission_risk": s.breakdown.permission_risk,
                     "permission_label": s.breakdown.permission_label,
                     "permission_notes": s.breakdown.permission_notes,
+                    "auth_penalty": s.breakdown.auth_penalty,
+                    "exposure_penalty": s.breakdown.exposure_penalty,
+                    "auth_notes": s.breakdown.auth_notes,
                     "stale_penalty": s.breakdown.stale_penalty,
                     "issue_penalty": s.breakdown.issue_penalty,
                     "popularity_bonus": s.breakdown.popularity_bonus,
@@ -47,6 +50,10 @@ def to_markdown(scores: List[TrustScore]) -> str:
         lines.append(f"### {s.name}")
         for n in s.breakdown.permission_notes:
             lines.append(f"- {n}")
+        for n in s.breakdown.auth_notes:
+            lines.append(f"- {n}")
+        lines.append(f"- Auth penalty: {s.breakdown.auth_penalty}")
+        lines.append(f"- Exposure penalty: {s.breakdown.exposure_penalty}")
         lines.append(f"- Stale penalty: {s.breakdown.stale_penalty}")
         lines.append(f"- Issue penalty: {s.breakdown.issue_penalty}")
         lines.append(f"- Popularity bonus: +{s.breakdown.popularity_bonus}")
