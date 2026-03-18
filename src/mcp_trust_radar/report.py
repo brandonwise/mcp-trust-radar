@@ -16,6 +16,12 @@ def to_dict(scores: List[TrustScore]) -> dict:
                     "permission_risk": s.breakdown.permission_risk,
                     "permission_label": s.breakdown.permission_label,
                     "permission_notes": s.breakdown.permission_notes,
+                    "auth_penalty": s.breakdown.auth_penalty,
+                    "exposure_penalty": s.breakdown.exposure_penalty,
+                    "auth_notes": s.breakdown.auth_notes,
+                    "injection_adjustment": s.breakdown.injection_adjustment,
+                    "injection_label": s.breakdown.injection_label,
+                    "injection_notes": s.breakdown.injection_notes,
                     "stale_penalty": s.breakdown.stale_penalty,
                     "issue_penalty": s.breakdown.issue_penalty,
                     "popularity_bonus": s.breakdown.popularity_bonus,
@@ -32,12 +38,15 @@ def to_markdown(scores: List[TrustScore]) -> str:
     lines = [
         "# MCP Trust Radar Report",
         "",
-        "| Server | Score | Tier | Permission Risk |",
-        "|---|---:|---|---|",
+        "| Server | Score | Tier | Permission Risk | Injection Posture |",
+        "|---|---:|---|---|---|",
     ]
     for s in scores:
         lines.append(
-            f"| {s.name} | {s.score} | {s.tier} | {s.breakdown.permission_label} ({s.breakdown.permission_risk}) |"
+            "| "
+            f"{s.name} | {s.score} | {s.tier} | "
+            f"{s.breakdown.permission_label} ({s.breakdown.permission_risk}) | "
+            f"{s.breakdown.injection_label} ({s.breakdown.injection_adjustment:+d}) |"
         )
 
     lines.append("")
@@ -47,6 +56,13 @@ def to_markdown(scores: List[TrustScore]) -> str:
         lines.append(f"### {s.name}")
         for n in s.breakdown.permission_notes:
             lines.append(f"- {n}")
+        for n in s.breakdown.auth_notes:
+            lines.append(f"- {n}")
+        for n in s.breakdown.injection_notes:
+            lines.append(f"- {n}")
+        lines.append(f"- Auth penalty: {s.breakdown.auth_penalty}")
+        lines.append(f"- Exposure penalty: {s.breakdown.exposure_penalty}")
+        lines.append(f"- Prompt-injection adjustment: {s.breakdown.injection_adjustment:+d}")
         lines.append(f"- Stale penalty: {s.breakdown.stale_penalty}")
         lines.append(f"- Issue penalty: {s.breakdown.issue_penalty}")
         lines.append(f"- Popularity bonus: +{s.breakdown.popularity_bonus}")

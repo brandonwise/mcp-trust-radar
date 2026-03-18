@@ -14,6 +14,9 @@ class Server:
     last_commit_days_ago: Optional[int] = None
     license: Optional[str] = None
     maintainers: int = 1
+    auth_required: Optional[bool] = None
+    exposed_publicly: Optional[bool] = None
+    prompt_injection_controls: Optional[List[str]] = None
 
 
 @dataclass
@@ -26,6 +29,12 @@ class RiskBreakdown:
     popularity_bonus: int
     license_adjustment: int
     maintainer_bonus: int
+    auth_penalty: int
+    exposure_penalty: int
+    auth_notes: List[str]
+    injection_adjustment: int
+    injection_label: str
+    injection_notes: List[str]
 
 
 @dataclass
@@ -36,13 +45,57 @@ class TrustScore:
     breakdown: RiskBreakdown
 
 
+def _as_optional_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "t", "yes", "y"}:
+            return True
+        if normalized in {"0", "false", "f", "no", "n"}:
+            return False
+    raise ValueError(f"Expected a boolean-compatible value, got: {value!r}")
+
+
+def _as_string_list(value: Any, field_name: str) -> List[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+
+    if isinstance(value, list):
+        out: List[str] = []
+        for item in value:
+            text = str(item).strip()
+            if text:
+                out.append(text)
+        return out
+
+    raise ValueError(f"Expected '{field_name}' to be a list or comma-separated string, got: {value!r}")
+
+
 def parse_servers(data: Any) -> List[Server]:
-    payload = data.get("servers", data)
+    if isinstance(data, dict):
+        payload = data.get("servers", data)
+    else:
+        payload = data
+
     if not isinstance(payload, list):
         raise ValueError("Input must be a list or an object with a 'servers' list")
 
     servers: List[Server] = []
     for raw in payload:
+        controls = (
+            _as_string_list(raw.get("prompt_injection_controls"), "prompt_injection_controls")
+            if "prompt_injection_controls" in raw
+            else None
+        )
+
         servers.append(
             Server(
                 name=str(raw["name"]),
@@ -57,6 +110,9 @@ def parse_servers(data: Any) -> List[Server]:
                 ),
                 license=(str(raw["license"]) if raw.get("license") else None),
                 maintainers=int(raw.get("maintainers", 1) or 1),
+                auth_required=_as_optional_bool(raw.get("auth_required")),
+                exposed_publicly=_as_optional_bool(raw.get("exposed_publicly")),
+                prompt_injection_controls=controls,
             )
         )
 
