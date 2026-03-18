@@ -6,7 +6,7 @@ Quick trust scoring for MCP servers.
 
 > Should this server run in my environment right now?
 
-It scores servers using permission risk, repo freshness, issue pressure, maintainer depth, and license posture.
+It scores servers using permission risk, authentication posture, public exposure risk, prompt-injection hardening signals, repo freshness, issue pressure, maintainer depth, and license posture.
 
 ## Why this matters
 
@@ -21,6 +21,9 @@ This project gives you a repeatable first-pass filter so you can:
 ## What it scores
 
 - Permission risk (read-only vs shell/write/network capabilities)
+- Authentication posture (`auth_required`)
+- Public exposure posture (`exposed_publicly`)
+- Prompt-injection hardening controls (`prompt_injection_controls`)
 - Maintenance health (how stale the repo is)
 - Issue pressure (open issues relative to repo traction)
 - License signal (clear SPDX vs missing)
@@ -42,6 +45,57 @@ mcp-radar score \
 ```
 
 The command exits with non-zero when any server lands in `caution` tier (useful for CI policies).
+
+## Input fields for access posture
+
+`auth_required` and `exposed_publicly` are optional booleans. When provided, they influence score:
+
+- Public + no auth gets a heavy penalty
+- Public + auth gets a smaller penalty
+- Missing fields keep backward-compatible scoring behavior
+
+```json
+{
+  "name": "ticket-helper",
+  "permissions": ["issues:read", "issues:update"],
+  "auth_required": true,
+  "exposed_publicly": true
+}
+```
+
+## Input fields for prompt-injection posture
+
+`prompt_injection_controls` is optional. It accepts either a JSON array or a comma-separated string.
+
+Recognized controls:
+
+- `allowlist_only_tools`
+- `tool_description_sanitization`
+- `server_instruction_sanitization`
+- `tool_argument_validation`
+- `resource_content_sanitization`
+- `human_approval_for_writes`
+
+Scoring behavior:
+
+- Missing field = no prompt-injection adjustment (backward compatible)
+- High-risk/public servers with weak or empty controls receive a penalty
+- Better control coverage earns a positive adjustment
+
+```json
+{
+  "name": "ops-helper",
+  "permissions": ["shell:exec", "filesystem:write", "network:http"],
+  "auth_required": true,
+  "exposed_publicly": true,
+  "prompt_injection_controls": [
+    "allowlist_only_tools",
+    "tool_description_sanitization",
+    "tool_argument_validation",
+    "human_approval_for_writes"
+  ]
+}
+```
 
 ## Optional live GitHub enrichment
 

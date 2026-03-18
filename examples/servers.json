@@ -8,7 +8,14 @@
       "open_issues": 34,
       "last_commit_days_ago": 9,
       "license": "MIT",
-      "maintainers": 6
+      "maintainers": 6,
+      "auth_required": true,
+      "exposed_publicly": false,
+      "prompt_injection_controls": [
+        "allowlist_only_tools",
+        "tool_description_sanitization",
+        "resource_content_sanitization"
+      ]
     },
     {
       "name": "ticket-helper",
@@ -17,7 +24,14 @@
       "open_issues": 18,
       "last_commit_days_ago": 110,
       "license": "Apache-2.0",
-      "maintainers": 2
+      "maintainers": 2,
+      "auth_required": true,
+      "exposed_publicly": true,
+      "prompt_injection_controls": [
+        "allowlist_only_tools",
+        "tool_argument_validation",
+        "human_approval_for_writes"
+      ]
     },
     {
       "name": "ops-super-bot",
@@ -25,7 +39,10 @@
       "stars": 22,
       "open_issues": 45,
       "last_commit_days_ago": 420,
-      "maintainers": 1
+      "maintainers": 1,
+      "auth_required": false,
+      "exposed_publicly": true,
+      "prompt_injection_controls": []
     }
   ]
 }
