@@ -44,7 +44,24 @@ mcp-radar score \
   --markdown trust-report.md
 ```
 
-The command exits with non-zero when any server lands in `caution` tier (useful for CI policies).
+By default, the command exits non-zero when any server lands in `caution` tier (useful for CI policies).
+
+You can tighten or loosen the release gate with policy flags:
+
+- `--minimum-tier review` (default): fail only on `caution`
+- `--minimum-tier trusted`: require every server to be `trusted`
+- `--minimum-tier caution`: disable tier-based failures
+- `--minimum-score N`: fail if any score is below `N`
+
+Examples:
+
+```bash
+# Strict policy: all servers must be trusted
+mcp-radar score --input examples/servers.json --minimum-tier trusted
+
+# Custom score bar: allow review tier, but block scores under 70
+mcp-radar score --input examples/servers.json --minimum-tier review --minimum-score 70
+```
 
 ## Input fields for access posture
 
