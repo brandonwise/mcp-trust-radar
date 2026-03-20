@@ -5,35 +5,35 @@ from mcp_trust_radar.models import Server
 from mcp_trust_radar.scoring import score_server
 
 
-def _sample_scores():
-    trusted = score_server(
-        Server(
-            name="safe-docs",
-            permissions=["docs:read"],
-            stars=500,
-            open_issues=5,
-            last_commit_days_ago=10,
-            license="MIT",
-            maintainers=4,
-            auth_required=True,
-            exposed_publicly=False,
-        )
+def _sample_servers():
+    trusted = Server(
+        name="safe-docs",
+        permissions=["docs:read"],
+        stars=500,
+        open_issues=5,
+        last_commit_days_ago=10,
+        license="MIT",
+        maintainers=4,
+        auth_required=True,
+        exposed_publicly=False,
     )
-    caution = score_server(
-        Server(
-            name="danger-bot",
-            permissions=["shell:exec", "filesystem:write", "network:http"],
-            stars=8,
-            open_issues=60,
-            last_commit_days_ago=500,
-            license=None,
-            maintainers=1,
-            auth_required=False,
-            exposed_publicly=True,
-            prompt_injection_controls=[],
-        )
+    caution = Server(
+        name="danger-bot",
+        permissions=["shell:exec", "filesystem:write", "network:http"],
+        stars=8,
+        open_issues=60,
+        last_commit_days_ago=500,
+        license=None,
+        maintainers=1,
+        auth_required=False,
+        exposed_publicly=True,
+        prompt_injection_controls=[],
     )
     return [trusted, caution]
+
+
+def _sample_scores():
+    return [score_server(server) for server in _sample_servers()]
 
 
 def test_parser_score_command():
@@ -42,6 +42,8 @@ def test_parser_score_command():
     assert args.command == "score"
     assert args.input == "servers.json"
     assert args.minimum_tier == "review"
+    assert args.block_public_without_auth is False
+    assert args.minimum_public_controls is None
 
 
 def test_evaluate_gate_blocks_caution_by_default():
@@ -71,3 +73,76 @@ def test_evaluate_gate_can_enforce_minimum_score():
 def test_evaluate_gate_rejects_invalid_minimum_score():
     with pytest.raises(ValueError):
         evaluate_gate(_sample_scores(), minimum_score=120)
+
+
+def test_evaluate_gate_rejects_invalid_minimum_public_controls():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), minimum_public_controls=9)
+
+
+def test_evaluate_gate_requires_servers_for_public_policy_checks():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), block_public_without_auth=True)
+
+
+def test_evaluate_gate_blocks_public_servers_without_auth_when_enabled():
+    servers = _sample_servers()
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        block_public_without_auth=True,
+    )
+
+    assert passed is False
+    assert any("missing explicit auth_required=true" in r for r in reasons)
+
+
+def test_evaluate_gate_blocks_public_servers_with_insufficient_controls_when_enabled():
+    servers = _sample_servers()
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        minimum_public_controls=2,
+    )
+
+    assert passed is False
+    assert any("fewer than 2 prompt-injection controls" in r for r in reasons)
+
+
+def test_evaluate_gate_passes_when_public_policy_requirements_are_met():
+    servers = [
+        Server(
+            name="public-secure",
+            permissions=["issues:update", "network:http"],
+            stars=120,
+            open_issues=8,
+            last_commit_days_ago=20,
+            license="MIT",
+            maintainers=3,
+            auth_required=True,
+            exposed_publicly=True,
+            prompt_injection_controls=[
+                "allowlist_only_tools",
+                "tool_description_sanitization",
+                "tool_argument_validation",
+            ],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        block_public_without_auth=True,
+        minimum_public_controls=2,
+    )
+
+    assert passed is True
+    assert reasons == []

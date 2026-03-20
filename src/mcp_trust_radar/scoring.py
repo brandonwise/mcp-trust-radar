@@ -35,6 +35,27 @@ PROMPT_INJECTION_CONTROLS = {
 }
 
 
+def normalize_prompt_injection_controls(controls: Optional[List[str]]) -> Tuple[List[str], List[str]]:
+    if not controls:
+        return [], []
+
+    normalized: List[str] = []
+    unknown: List[str] = []
+    seen = set()
+
+    for control in controls:
+        key = control.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        if key in PROMPT_INJECTION_CONTROLS:
+            normalized.append(key)
+        else:
+            unknown.append(control)
+
+    return normalized, unknown
+
+
 def permission_risk(permissions: List[str]) -> Tuple[float, str, List[str]]:
     risk = 0.0
     notes: List[str] = []
@@ -105,20 +126,7 @@ def prompt_injection_posture_adjustment(
         notes.append("Prompt-injection controls not provided")
         return 0, "unknown", notes
 
-    normalized: List[str] = []
-    unknown: List[str] = []
-    seen = set()
-
-    for control in controls:
-        key = control.strip().lower()
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        if key in PROMPT_INJECTION_CONTROLS:
-            normalized.append(key)
-        else:
-            unknown.append(control)
-
+    normalized, unknown = normalize_prompt_injection_controls(controls)
     coverage = len(normalized)
     risk_surface = permission_label in {"medium", "high"} or exposed_publicly is True
 
