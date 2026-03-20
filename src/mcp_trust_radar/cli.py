@@ -10,7 +10,7 @@ from typing import List, Optional, Sequence, Tuple
 from .github_client import fetch_repo_metadata
 from .models import Server, TrustScore, parse_servers
 from .report import to_dict, to_markdown
-from .scoring import score_all
+from .scoring import normalize_prompt_injection_controls, score_all
 
 TIER_RANK = {
     "caution": 0,
@@ -39,6 +39,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Fail when any server score is below this value (0-100).",
     )
+    cmd.add_argument(
+        "--block-public-without-auth",
+        action="store_true",
+        help="Fail when any publicly exposed server does not explicitly require authentication.",
+    )
+    cmd.add_argument(
+        "--minimum-public-controls",
+        type=int,
+        help="Fail when any publicly exposed server has fewer than N recognized prompt-injection controls (0-6).",
+    )
 
     return parser
 
@@ -56,13 +66,22 @@ def hydrate_live(servers: List[Server]) -> None:
 
 
 def evaluate_gate(
-    scores: Sequence[TrustScore], minimum_tier: str = "review", minimum_score: Optional[int] = None
+    scores: Sequence[TrustScore],
+    minimum_tier: str = "review",
+    minimum_score: Optional[int] = None,
+    *,
+    servers: Optional[Sequence[Server]] = None,
+    block_public_without_auth: bool = False,
+    minimum_public_controls: Optional[int] = None,
 ) -> Tuple[bool, List[str]]:
     if minimum_tier not in TIER_RANK:
         raise ValueError(f"Unknown tier: {minimum_tier}")
 
     if minimum_score is not None and not (0 <= minimum_score <= 100):
         raise ValueError("--minimum-score must be between 0 and 100")
+
+    if minimum_public_controls is not None and not (0 <= minimum_public_controls <= 6):
+        raise ValueError("--minimum-public-controls must be between 0 and 6")
 
     reasons: List[str] = []
 
@@ -85,6 +104,39 @@ def evaluate_gate(
             reasons.append(
                 f"{len(below_score)} server(s) scored below minimum score {minimum_score}: {examples}"
             )
+
+    if block_public_without_auth or minimum_public_controls is not None:
+        if servers is None:
+            raise ValueError("servers are required for public posture policy checks")
+
+        public_servers = [server for server in servers if server.exposed_publicly is True]
+
+        if block_public_without_auth:
+            offenders = [server for server in public_servers if server.auth_required is not True]
+            if offenders:
+                examples = ", ".join(server.name for server in offenders[:3])
+                if len(offenders) > 3:
+                    examples += ", ..."
+                reasons.append(
+                    f"{len(offenders)} publicly exposed server(s) missing explicit auth_required=true: {examples}"
+                )
+
+        if minimum_public_controls is not None:
+            weak_public = []
+            for server in public_servers:
+                normalized, _ = normalize_prompt_injection_controls(server.prompt_injection_controls)
+                if len(normalized) < minimum_public_controls:
+                    weak_public.append((server.name, len(normalized)))
+
+            if weak_public:
+                examples = ", ".join(
+                    f"{name}({count})" for name, count in weak_public[:3]
+                )
+                if len(weak_public) > 3:
+                    examples += ", ..."
+                reasons.append(
+                    f"{len(weak_public)} publicly exposed server(s) declared fewer than {minimum_public_controls} prompt-injection controls: {examples}"
+                )
 
     return len(reasons) == 0, reasons
 
@@ -113,6 +165,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             scores,
             minimum_tier=args.minimum_tier,
             minimum_score=args.minimum_score,
+            servers=servers,
+            block_public_without_auth=args.block_public_without_auth,
+            minimum_public_controls=args.minimum_public_controls,
         )
         if not passed:
             for reason in reasons:
