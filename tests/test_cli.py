@@ -44,6 +44,7 @@ def test_parser_score_command():
     assert args.minimum_tier == "review"
     assert args.block_public_without_auth is False
     assert args.minimum_public_controls is None
+    assert args.minimum_risk_surface_controls is None
 
 
 def test_evaluate_gate_blocks_caution_by_default():
@@ -80,9 +81,19 @@ def test_evaluate_gate_rejects_invalid_minimum_public_controls():
         evaluate_gate(_sample_scores(), minimum_public_controls=9)
 
 
+def test_evaluate_gate_rejects_invalid_minimum_risk_surface_controls():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), minimum_risk_surface_controls=7)
+
+
 def test_evaluate_gate_requires_servers_for_public_policy_checks():
     with pytest.raises(ValueError):
         evaluate_gate(_sample_scores(), block_public_without_auth=True)
+
+
+def test_evaluate_gate_requires_servers_for_risk_surface_policy_checks():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), minimum_risk_surface_controls=2)
 
 
 def test_evaluate_gate_blocks_public_servers_without_auth_when_enabled():
@@ -113,6 +124,67 @@ def test_evaluate_gate_blocks_public_servers_with_insufficient_controls_when_ena
 
     assert passed is False
     assert any("fewer than 2 prompt-injection controls" in r for r in reasons)
+
+
+def test_evaluate_gate_blocks_risk_surface_servers_with_insufficient_controls():
+    servers = [
+        Server(
+            name="internal-writer",
+            permissions=["issues:update", "tickets:create", "jobs:run", "pipeline:patch"],
+            stars=40,
+            open_issues=5,
+            last_commit_days_ago=15,
+            license="MIT",
+            maintainers=2,
+            auth_required=True,
+            exposed_publicly=False,
+            prompt_injection_controls=["allowlist_only_tools"],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        minimum_risk_surface_controls=2,
+    )
+
+    assert passed is False
+    assert any("risk-surface server" in r for r in reasons)
+    assert any("internal-writer" in r for r in reasons)
+
+
+def test_evaluate_gate_passes_when_risk_surface_controls_are_met():
+    servers = [
+        Server(
+            name="internal-secure-writer",
+            permissions=["issues:update", "tickets:create", "jobs:run", "pipeline:patch"],
+            stars=40,
+            open_issues=5,
+            last_commit_days_ago=15,
+            license="MIT",
+            maintainers=2,
+            auth_required=True,
+            exposed_publicly=False,
+            prompt_injection_controls=[
+                "allowlist_only_tools",
+                "tool_argument_validation",
+                "human_approval_for_writes",
+            ],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        minimum_risk_surface_controls=2,
+    )
+
+    assert passed is True
+    assert reasons == []
 
 
 def test_evaluate_gate_passes_when_public_policy_requirements_are_met():

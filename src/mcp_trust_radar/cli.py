@@ -10,7 +10,7 @@ from typing import List, Optional, Sequence, Tuple
 from .github_client import fetch_repo_metadata
 from .models import Server, TrustScore, parse_servers
 from .report import to_dict, to_markdown
-from .scoring import normalize_prompt_injection_controls, score_all
+from .scoring import normalize_prompt_injection_controls, permission_risk, score_all
 
 TIER_RANK = {
     "caution": 0,
@@ -49,6 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Fail when any publicly exposed server has fewer than N recognized prompt-injection controls (0-6).",
     )
+    cmd.add_argument(
+        "--minimum-risk-surface-controls",
+        type=int,
+        help=(
+            "Fail when any medium/high-risk or publicly exposed server has fewer than "
+            "N recognized prompt-injection controls (0-6)."
+        ),
+    )
 
     return parser
 
@@ -73,6 +81,7 @@ def evaluate_gate(
     servers: Optional[Sequence[Server]] = None,
     block_public_without_auth: bool = False,
     minimum_public_controls: Optional[int] = None,
+    minimum_risk_surface_controls: Optional[int] = None,
 ) -> Tuple[bool, List[str]]:
     if minimum_tier not in TIER_RANK:
         raise ValueError(f"Unknown tier: {minimum_tier}")
@@ -82,6 +91,9 @@ def evaluate_gate(
 
     if minimum_public_controls is not None and not (0 <= minimum_public_controls <= 6):
         raise ValueError("--minimum-public-controls must be between 0 and 6")
+
+    if minimum_risk_surface_controls is not None and not (0 <= minimum_risk_surface_controls <= 6):
+        raise ValueError("--minimum-risk-surface-controls must be between 0 and 6")
 
     reasons: List[str] = []
 
@@ -105,7 +117,11 @@ def evaluate_gate(
                 f"{len(below_score)} server(s) scored below minimum score {minimum_score}: {examples}"
             )
 
-    if block_public_without_auth or minimum_public_controls is not None:
+    if (
+        block_public_without_auth
+        or minimum_public_controls is not None
+        or minimum_risk_surface_controls is not None
+    ):
         if servers is None:
             raise ValueError("servers are required for public posture policy checks")
 
@@ -138,6 +154,30 @@ def evaluate_gate(
                     f"{len(weak_public)} publicly exposed server(s) declared fewer than {minimum_public_controls} prompt-injection controls: {examples}"
                 )
 
+        if minimum_risk_surface_controls is not None:
+            weak_risk_surface = []
+            for server in servers:
+                _, permission_label, _ = permission_risk(server.permissions)
+                risk_surface = server.exposed_publicly is True or permission_label in {"medium", "high"}
+                if not risk_surface:
+                    continue
+
+                normalized, _ = normalize_prompt_injection_controls(server.prompt_injection_controls)
+                if len(normalized) < minimum_risk_surface_controls:
+                    posture = "public" if server.exposed_publicly is True else f"{permission_label}-risk permissions"
+                    weak_risk_surface.append((server.name, len(normalized), posture))
+
+            if weak_risk_surface:
+                examples = ", ".join(
+                    f"{name}({count}; {posture})"
+                    for name, count, posture in weak_risk_surface[:3]
+                )
+                if len(weak_risk_surface) > 3:
+                    examples += ", ..."
+                reasons.append(
+                    f"{len(weak_risk_surface)} risk-surface server(s) declared fewer than {minimum_risk_surface_controls} prompt-injection controls: {examples}"
+                )
+
     return len(reasons) == 0, reasons
 
 
@@ -168,6 +208,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             servers=servers,
             block_public_without_auth=args.block_public_without_auth,
             minimum_public_controls=args.minimum_public_controls,
+            minimum_risk_surface_controls=args.minimum_risk_surface_controls,
         )
         if not passed:
             for reason in reasons:
