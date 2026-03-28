@@ -5,7 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .github_client import fetch_repo_metadata
 from .models import Server, TrustScore, parse_servers
@@ -18,6 +18,56 @@ TIER_RANK = {
     "trusted": 2,
 }
 
+POLICY_PRESETS: Dict[str, Dict[str, object]] = {
+    "balanced": {
+        "minimum_tier": "review",
+        "minimum_score": None,
+        "block_public_without_auth": False,
+        "minimum_public_controls": None,
+        "minimum_risk_surface_controls": None,
+    },
+    "internet-facing": {
+        "minimum_tier": "review",
+        "minimum_score": 60,
+        "block_public_without_auth": True,
+        "minimum_public_controls": 3,
+        "minimum_risk_surface_controls": 2,
+    },
+    "strict": {
+        "minimum_tier": "trusted",
+        "minimum_score": 75,
+        "block_public_without_auth": True,
+        "minimum_public_controls": 4,
+        "minimum_risk_surface_controls": 3,
+    },
+}
+
+
+def resolve_policy_settings(args: argparse.Namespace) -> Dict[str, object]:
+    preset = POLICY_PRESETS[args.policy]
+
+    minimum_tier = args.minimum_tier or preset["minimum_tier"]
+    minimum_score = args.minimum_score if args.minimum_score is not None else preset["minimum_score"]
+    minimum_public_controls = (
+        args.minimum_public_controls
+        if args.minimum_public_controls is not None
+        else preset["minimum_public_controls"]
+    )
+    minimum_risk_surface_controls = (
+        args.minimum_risk_surface_controls
+        if args.minimum_risk_surface_controls is not None
+        else preset["minimum_risk_surface_controls"]
+    )
+
+    return {
+        "minimum_tier": minimum_tier,
+        "minimum_score": minimum_score,
+        "block_public_without_auth": args.block_public_without_auth
+        or bool(preset["block_public_without_auth"]),
+        "minimum_public_controls": minimum_public_controls,
+        "minimum_risk_surface_controls": minimum_risk_surface_controls,
+    }
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Score MCP servers by trust and maintenance signals.")
@@ -29,10 +79,21 @@ def build_parser() -> argparse.ArgumentParser:
     cmd.add_argument("--markdown", help="Write markdown report")
     cmd.add_argument("--live", action="store_true", help="Fetch GitHub metadata for repos")
     cmd.add_argument(
+        "--policy",
+        choices=sorted(POLICY_PRESETS.keys()),
+        default="balanced",
+        help=(
+            "Named gate policy preset. Use --minimum-* flags to override individual thresholds "
+            "(default: balanced)."
+        ),
+    )
+    cmd.add_argument(
         "--minimum-tier",
         choices=["caution", "review", "trusted"],
-        default="review",
-        help="Fail when any server falls below this tier (default: review, which blocks caution).",
+        help=(
+            "Fail when any server falls below this tier. "
+            "Defaults to policy preset (balanced=review, strict=trusted)."
+        ),
     )
     cmd.add_argument(
         "--minimum-score",
@@ -201,14 +262,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.markdown:
             Path(args.markdown).write_text(to_markdown(scores), encoding="utf-8")
 
+        policy_settings = resolve_policy_settings(args)
+
         passed, reasons = evaluate_gate(
             scores,
-            minimum_tier=args.minimum_tier,
-            minimum_score=args.minimum_score,
+            minimum_tier=str(policy_settings["minimum_tier"]),
+            minimum_score=policy_settings["minimum_score"],
             servers=servers,
-            block_public_without_auth=args.block_public_without_auth,
-            minimum_public_controls=args.minimum_public_controls,
-            minimum_risk_surface_controls=args.minimum_risk_surface_controls,
+            block_public_without_auth=bool(policy_settings["block_public_without_auth"]),
+            minimum_public_controls=policy_settings["minimum_public_controls"],
+            minimum_risk_surface_controls=policy_settings["minimum_risk_surface_controls"],
         )
         if not passed:
             for reason in reasons:

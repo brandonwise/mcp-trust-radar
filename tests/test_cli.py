@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_trust_radar.cli import build_parser, evaluate_gate
+from mcp_trust_radar.cli import build_parser, evaluate_gate, resolve_policy_settings
 from mcp_trust_radar.models import Server
 from mcp_trust_radar.scoring import score_server
 
@@ -41,10 +41,62 @@ def test_parser_score_command():
     args = parser.parse_args(["score", "--input", "servers.json"])
     assert args.command == "score"
     assert args.input == "servers.json"
-    assert args.minimum_tier == "review"
+    assert args.policy == "balanced"
+    assert args.minimum_tier is None
     assert args.block_public_without_auth is False
     assert args.minimum_public_controls is None
     assert args.minimum_risk_surface_controls is None
+
+
+def test_resolve_policy_settings_balanced_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["score", "--input", "servers.json"])
+
+    policy = resolve_policy_settings(args)
+
+    assert policy["minimum_tier"] == "review"
+    assert policy["minimum_score"] is None
+    assert policy["block_public_without_auth"] is False
+    assert policy["minimum_public_controls"] is None
+    assert policy["minimum_risk_surface_controls"] is None
+
+
+def test_resolve_policy_settings_strict_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["score", "--input", "servers.json", "--policy", "strict"])
+
+    policy = resolve_policy_settings(args)
+
+    assert policy["minimum_tier"] == "trusted"
+    assert policy["minimum_score"] == 75
+    assert policy["block_public_without_auth"] is True
+    assert policy["minimum_public_controls"] == 4
+    assert policy["minimum_risk_surface_controls"] == 3
+
+
+def test_resolve_policy_settings_allows_individual_overrides():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "score",
+            "--input",
+            "servers.json",
+            "--policy",
+            "internet-facing",
+            "--minimum-score",
+            "85",
+            "--minimum-public-controls",
+            "5",
+        ]
+    )
+
+    policy = resolve_policy_settings(args)
+
+    assert policy["minimum_tier"] == "review"
+    assert policy["minimum_score"] == 85
+    assert policy["block_public_without_auth"] is True
+    assert policy["minimum_public_controls"] == 5
+    assert policy["minimum_risk_surface_controls"] == 2
 
 
 def test_evaluate_gate_blocks_caution_by_default():
