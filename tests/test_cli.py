@@ -46,6 +46,7 @@ def test_parser_score_command():
     assert args.block_public_without_auth is False
     assert args.minimum_public_controls is None
     assert args.minimum_risk_surface_controls is None
+    assert args.minimum_command_controls is None
 
 
 def test_resolve_policy_settings_balanced_defaults():
@@ -59,6 +60,7 @@ def test_resolve_policy_settings_balanced_defaults():
     assert policy["block_public_without_auth"] is False
     assert policy["minimum_public_controls"] is None
     assert policy["minimum_risk_surface_controls"] is None
+    assert policy["minimum_command_controls"] is None
 
 
 def test_resolve_policy_settings_strict_defaults():
@@ -72,6 +74,7 @@ def test_resolve_policy_settings_strict_defaults():
     assert policy["block_public_without_auth"] is True
     assert policy["minimum_public_controls"] == 4
     assert policy["minimum_risk_surface_controls"] == 3
+    assert policy["minimum_command_controls"] == 2
 
 
 def test_resolve_policy_settings_allows_individual_overrides():
@@ -97,6 +100,7 @@ def test_resolve_policy_settings_allows_individual_overrides():
     assert policy["block_public_without_auth"] is True
     assert policy["minimum_public_controls"] == 5
     assert policy["minimum_risk_surface_controls"] == 2
+    assert policy["minimum_command_controls"] == 2
 
 
 def test_evaluate_gate_blocks_caution_by_default():
@@ -138,6 +142,11 @@ def test_evaluate_gate_rejects_invalid_minimum_risk_surface_controls():
         evaluate_gate(_sample_scores(), minimum_risk_surface_controls=7)
 
 
+def test_evaluate_gate_rejects_invalid_minimum_command_controls():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), minimum_command_controls=7)
+
+
 def test_evaluate_gate_requires_servers_for_public_policy_checks():
     with pytest.raises(ValueError):
         evaluate_gate(_sample_scores(), block_public_without_auth=True)
@@ -146,6 +155,11 @@ def test_evaluate_gate_requires_servers_for_public_policy_checks():
 def test_evaluate_gate_requires_servers_for_risk_surface_policy_checks():
     with pytest.raises(ValueError):
         evaluate_gate(_sample_scores(), minimum_risk_surface_controls=2)
+
+
+def test_evaluate_gate_requires_servers_for_command_policy_checks():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), minimum_command_controls=2)
 
 
 def test_evaluate_gate_blocks_public_servers_without_auth_when_enabled():
@@ -266,6 +280,66 @@ def test_evaluate_gate_passes_when_public_policy_requirements_are_met():
         servers=servers,
         block_public_without_auth=True,
         minimum_public_controls=2,
+    )
+
+    assert passed is True
+    assert reasons == []
+
+
+def test_evaluate_gate_blocks_command_servers_with_insufficient_controls():
+    servers = [
+        Server(
+            name="command-runner",
+            permissions=["shell:exec", "network:http"],
+            stars=80,
+            open_issues=4,
+            last_commit_days_ago=14,
+            license="MIT",
+            maintainers=2,
+            auth_required=True,
+            exposed_publicly=False,
+            prompt_injection_controls=["tool_argument_validation"],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        minimum_command_controls=2,
+    )
+
+    assert passed is False
+    assert any("command-capable server" in r for r in reasons)
+    assert any("command-runner" in r for r in reasons)
+
+
+def test_evaluate_gate_passes_when_command_servers_meet_control_floor():
+    servers = [
+        Server(
+            name="command-secure",
+            permissions=["shell:exec", "network:http"],
+            stars=80,
+            open_issues=4,
+            last_commit_days_ago=14,
+            license="MIT",
+            maintainers=2,
+            auth_required=True,
+            exposed_publicly=False,
+            prompt_injection_controls=[
+                "allowlist_only_tools",
+                "tool_argument_validation",
+            ],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        minimum_command_controls=2,
     )
 
     assert passed is True

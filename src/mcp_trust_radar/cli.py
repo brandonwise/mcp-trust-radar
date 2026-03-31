@@ -5,12 +5,12 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, cast
 
 from .github_client import fetch_repo_metadata
 from .models import Server, TrustScore, parse_servers
 from .report import to_dict, to_markdown
-from .scoring import normalize_prompt_injection_controls, permission_risk, score_all
+from .scoring import execution_permissions, normalize_prompt_injection_controls, permission_risk, score_all
 
 TIER_RANK = {
     "caution": 0,
@@ -25,6 +25,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "block_public_without_auth": False,
         "minimum_public_controls": None,
         "minimum_risk_surface_controls": None,
+        "minimum_command_controls": None,
     },
     "internet-facing": {
         "minimum_tier": "review",
@@ -32,6 +33,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "block_public_without_auth": True,
         "minimum_public_controls": 3,
         "minimum_risk_surface_controls": 2,
+        "minimum_command_controls": 2,
     },
     "strict": {
         "minimum_tier": "trusted",
@@ -39,6 +41,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "block_public_without_auth": True,
         "minimum_public_controls": 4,
         "minimum_risk_surface_controls": 3,
+        "minimum_command_controls": 2,
     },
 }
 
@@ -58,6 +61,11 @@ def resolve_policy_settings(args: argparse.Namespace) -> Dict[str, object]:
         if args.minimum_risk_surface_controls is not None
         else preset["minimum_risk_surface_controls"]
     )
+    minimum_command_controls = (
+        args.minimum_command_controls
+        if args.minimum_command_controls is not None
+        else preset["minimum_command_controls"]
+    )
 
     return {
         "minimum_tier": minimum_tier,
@@ -66,6 +74,7 @@ def resolve_policy_settings(args: argparse.Namespace) -> Dict[str, object]:
         or bool(preset["block_public_without_auth"]),
         "minimum_public_controls": minimum_public_controls,
         "minimum_risk_surface_controls": minimum_risk_surface_controls,
+        "minimum_command_controls": minimum_command_controls,
     }
 
 
@@ -118,6 +127,14 @@ def build_parser() -> argparse.ArgumentParser:
             "N recognized prompt-injection controls (0-6)."
         ),
     )
+    cmd.add_argument(
+        "--minimum-command-controls",
+        type=int,
+        help=(
+            "Fail when any server with command-execution permissions has fewer than "
+            "N recognized prompt-injection controls (0-6)."
+        ),
+    )
 
     return parser
 
@@ -143,6 +160,7 @@ def evaluate_gate(
     block_public_without_auth: bool = False,
     minimum_public_controls: Optional[int] = None,
     minimum_risk_surface_controls: Optional[int] = None,
+    minimum_command_controls: Optional[int] = None,
 ) -> Tuple[bool, List[str]]:
     if minimum_tier not in TIER_RANK:
         raise ValueError(f"Unknown tier: {minimum_tier}")
@@ -155,6 +173,9 @@ def evaluate_gate(
 
     if minimum_risk_surface_controls is not None and not (0 <= minimum_risk_surface_controls <= 6):
         raise ValueError("--minimum-risk-surface-controls must be between 0 and 6")
+
+    if minimum_command_controls is not None and not (0 <= minimum_command_controls <= 6):
+        raise ValueError("--minimum-command-controls must be between 0 and 6")
 
     reasons: List[str] = []
 
@@ -182,9 +203,10 @@ def evaluate_gate(
         block_public_without_auth
         or minimum_public_controls is not None
         or minimum_risk_surface_controls is not None
+        or minimum_command_controls is not None
     ):
         if servers is None:
-            raise ValueError("servers are required for public posture policy checks")
+            raise ValueError("servers are required for posture policy checks")
 
         public_servers = [server for server in servers if server.exposed_publicly is True]
 
@@ -239,6 +261,28 @@ def evaluate_gate(
                     f"{len(weak_risk_surface)} risk-surface server(s) declared fewer than {minimum_risk_surface_controls} prompt-injection controls: {examples}"
                 )
 
+        if minimum_command_controls is not None:
+            weak_command = []
+            for server in servers:
+                command_perms = execution_permissions(server.permissions)
+                if not command_perms:
+                    continue
+
+                normalized, _ = normalize_prompt_injection_controls(server.prompt_injection_controls)
+                if len(normalized) < minimum_command_controls:
+                    weak_command.append((server.name, len(normalized), command_perms))
+
+            if weak_command:
+                examples = ", ".join(
+                    f"{name}({count}; {', '.join(perms[:2])})"
+                    for name, count, perms in weak_command[:3]
+                )
+                if len(weak_command) > 3:
+                    examples += ", ..."
+                reasons.append(
+                    f"{len(weak_command)} command-capable server(s) declared fewer than {minimum_command_controls} prompt-injection controls: {examples}"
+                )
+
     return len(reasons) == 0, reasons
 
 
@@ -267,11 +311,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         passed, reasons = evaluate_gate(
             scores,
             minimum_tier=str(policy_settings["minimum_tier"]),
-            minimum_score=policy_settings["minimum_score"],
+            minimum_score=cast(Optional[int], policy_settings["minimum_score"]),
             servers=servers,
             block_public_without_auth=bool(policy_settings["block_public_without_auth"]),
-            minimum_public_controls=policy_settings["minimum_public_controls"],
-            minimum_risk_surface_controls=policy_settings["minimum_risk_surface_controls"],
+            minimum_public_controls=cast(Optional[int], policy_settings["minimum_public_controls"]),
+            minimum_risk_surface_controls=cast(
+                Optional[int], policy_settings["minimum_risk_surface_controls"]
+            ),
+            minimum_command_controls=cast(Optional[int], policy_settings["minimum_command_controls"]),
         )
         if not passed:
             for reason in reasons:

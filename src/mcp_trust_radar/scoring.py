@@ -25,6 +25,14 @@ MEDIUM_RISK_KEYWORDS = (
     "run",
 )
 
+EXECUTION_RISK_KEYWORDS = (
+    "exec",
+    "shell",
+    "command",
+    "spawn",
+    "system",
+)
+
 PROMPT_INJECTION_CONTROLS = {
     "allowlist_only_tools",
     "tool_description_sanitization",
@@ -81,6 +89,15 @@ def permission_risk(permissions: List[str]) -> Tuple[float, str, List[str]]:
         notes.append("No risky permission patterns detected")
 
     return risk, label, notes
+
+
+def execution_permissions(permissions: List[str]) -> List[str]:
+    found: List[str] = []
+    for perm in permissions:
+        p = perm.lower()
+        if any(k in p for k in EXECUTION_RISK_KEYWORDS):
+            found.append(perm)
+    return found
 
 
 def auth_posture_penalties(
@@ -174,6 +191,38 @@ def prompt_injection_posture_adjustment(
     return adjustment, label, notes
 
 
+def command_safeguard_adjustment(
+    permissions: List[str], controls: Optional[List[str]]
+) -> Tuple[int, List[str]]:
+    notes: List[str] = []
+    command_perms = execution_permissions(permissions)
+    if not command_perms:
+        notes.append("No command-execution capabilities detected")
+        return 0, notes
+
+    notes.append(f"Command-execution capabilities detected: {', '.join(command_perms)}")
+
+    normalized, _ = normalize_prompt_injection_controls(controls)
+    control_set = set(normalized)
+    has_allowlist = "allowlist_only_tools" in control_set
+    has_human_approval = "human_approval_for_writes" in control_set
+
+    if has_allowlist and has_human_approval:
+        notes.append("Execution safeguards present: allowlisted tools + human approval for writes")
+        return 2, notes
+
+    if has_allowlist or has_human_approval:
+        notes.append(
+            "Execution safeguards incomplete: declare both allowlist_only_tools and human_approval_for_writes"
+        )
+        return -4, notes
+
+    notes.append(
+        "Execution safeguards missing: declare allowlist_only_tools and human_approval_for_writes"
+    )
+    return -10, notes
+
+
 def stale_penalty(days_since_commit: Optional[int]) -> int:
     if days_since_commit is None:
         return 8
@@ -212,6 +261,9 @@ def score_server(server: Server) -> TrustScore:
     injection_adjustment, injection_label, injection_notes = prompt_injection_posture_adjustment(
         server.prompt_injection_controls, permission_label, server.exposed_publicly
     )
+    command_adjustment, command_notes = command_safeguard_adjustment(
+        server.permissions, server.prompt_injection_controls
+    )
 
     permission_penalty = int(round(permission_score * 2))  # 0..40
     stale = stale_penalty(server.last_commit_days_ago)
@@ -230,6 +282,7 @@ def score_server(server: Server) -> TrustScore:
     score += license_adjustment
     score += maintainer_bonus
     score += injection_adjustment
+    score += command_adjustment
     score = max(0, min(score, 100))
 
     breakdown = RiskBreakdown(
@@ -247,6 +300,8 @@ def score_server(server: Server) -> TrustScore:
         injection_adjustment=injection_adjustment,
         injection_label=injection_label,
         injection_notes=injection_notes,
+        command_safeguard_adjustment=command_adjustment,
+        command_safeguard_notes=command_notes,
     )
 
     return TrustScore(name=server.name, score=score, tier=tier_for(score), breakdown=breakdown)

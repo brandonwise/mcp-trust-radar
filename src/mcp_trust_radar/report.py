@@ -22,6 +22,8 @@ def to_dict(scores: List[TrustScore]) -> dict:
                     "injection_adjustment": s.breakdown.injection_adjustment,
                     "injection_label": s.breakdown.injection_label,
                     "injection_notes": s.breakdown.injection_notes,
+                    "command_safeguard_adjustment": s.breakdown.command_safeguard_adjustment,
+                    "command_safeguard_notes": s.breakdown.command_safeguard_notes,
                     "stale_penalty": s.breakdown.stale_penalty,
                     "issue_penalty": s.breakdown.issue_penalty,
                     "popularity_bonus": s.breakdown.popularity_bonus,
@@ -38,15 +40,16 @@ def to_markdown(scores: List[TrustScore]) -> str:
     lines = [
         "# MCP Trust Radar Report",
         "",
-        "| Server | Score | Tier | Permission Risk | Injection Posture |",
-        "|---|---:|---|---|---|",
+        "| Server | Score | Tier | Permission Risk | Injection Posture | Cmd Safeguards |",
+        "|---|---:|---|---|---|---|",
     ]
     for s in scores:
         lines.append(
             "| "
             f"{s.name} | {s.score} | {s.tier} | "
             f"{s.breakdown.permission_label} ({s.breakdown.permission_risk}) | "
-            f"{s.breakdown.injection_label} ({s.breakdown.injection_adjustment:+d}) |"
+            f"{s.breakdown.injection_label} ({s.breakdown.injection_adjustment:+d}) | "
+            f"{s.breakdown.command_safeguard_adjustment:+d} |"
         )
 
     lines.append("")
@@ -60,9 +63,12 @@ def to_markdown(scores: List[TrustScore]) -> str:
             lines.append(f"- {n}")
         for n in s.breakdown.injection_notes:
             lines.append(f"- {n}")
+        for n in s.breakdown.command_safeguard_notes:
+            lines.append(f"- {n}")
         lines.append(f"- Auth penalty: {s.breakdown.auth_penalty}")
         lines.append(f"- Exposure penalty: {s.breakdown.exposure_penalty}")
         lines.append(f"- Prompt-injection adjustment: {s.breakdown.injection_adjustment:+d}")
+        lines.append(f"- Command safeguard adjustment: {s.breakdown.command_safeguard_adjustment:+d}")
         lines.append(f"- Stale penalty: {s.breakdown.stale_penalty}")
         lines.append(f"- Issue penalty: {s.breakdown.issue_penalty}")
         lines.append(f"- Popularity bonus: +{s.breakdown.popularity_bonus}")
