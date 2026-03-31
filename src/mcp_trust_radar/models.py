@@ -35,6 +35,8 @@ class RiskBreakdown:
     injection_adjustment: int
     injection_label: str
     injection_notes: List[str]
+    command_safeguard_adjustment: int
+    command_safeguard_notes: List[str]
 
 
 @dataclass

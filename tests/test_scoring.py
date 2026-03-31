@@ -89,6 +89,67 @@ def test_prompt_injection_controls_raise_score_for_public_server():
     assert with_controls.breakdown.injection_label in {"moderate", "strong"}
 
 
+def test_command_capable_server_is_penalized_without_execution_safeguards():
+    base = {
+        "name": "command-runner",
+        "permissions": ["shell:exec", "network:http"],
+        "stars": 80,
+        "open_issues": 4,
+        "last_commit_days_ago": 12,
+        "license": "MIT",
+        "maintainers": 2,
+        "auth_required": True,
+        "exposed_publicly": False,
+    }
+
+    without_safeguards = score_server(
+        Server(
+            **base,
+            prompt_injection_controls=["tool_argument_validation"],
+        )
+    )
+    with_safeguards = score_server(
+        Server(
+            **base,
+            prompt_injection_controls=[
+                "allowlist_only_tools",
+                "tool_argument_validation",
+                "human_approval_for_writes",
+            ],
+        )
+    )
+
+    assert with_safeguards.score > without_safeguards.score
+    assert with_safeguards.breakdown.command_safeguard_adjustment > (
+        without_safeguards.breakdown.command_safeguard_adjustment
+    )
+    assert any(
+        "Command-execution capabilities detected" in note
+        for note in with_safeguards.breakdown.command_safeguard_notes
+    )
+
+
+def test_non_command_server_gets_neutral_command_safeguard_adjustment():
+    scored = score_server(
+        Server(
+            name="readonly-docs",
+            permissions=["docs:read"],
+            stars=30,
+            open_issues=1,
+            last_commit_days_ago=15,
+            license="MIT",
+            maintainers=2,
+            prompt_injection_controls=["allowlist_only_tools"],
+        )
+    )
+
+    assert scored.breakdown.command_safeguard_adjustment == 0
+    assert any(
+        "No command-execution capabilities detected" in note
+        for note in scored.breakdown.command_safeguard_notes
+    )
+
+
 def test_prompt_injection_controls_absent_stays_unknown():
     scored = score_server(
         Server(

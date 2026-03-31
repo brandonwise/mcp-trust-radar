@@ -6,7 +6,7 @@ Quick trust scoring for MCP servers.
 
 > Should this server run in my environment right now?
 
-It scores servers using permission risk, authentication posture, public exposure risk, prompt-injection hardening signals, repo freshness, issue pressure, maintainer depth, and license posture.
+It scores servers using permission risk, authentication posture, public exposure risk, prompt-injection hardening signals, command-execution safeguards, repo freshness, issue pressure, maintainer depth, and license posture.
 
 ## Why this matters
 
@@ -24,6 +24,7 @@ This project gives you a repeatable first-pass filter so you can:
 - Authentication posture (`auth_required`)
 - Public exposure posture (`exposed_publicly`)
 - Prompt-injection hardening controls (`prompt_injection_controls`)
+- Command-execution safeguard posture (allowlist + human approval controls for command-capable servers)
 - Maintenance health (how stale the repo is)
 - Issue pressure (open issues relative to repo traction)
 - License signal (clear SPDX vs missing)
@@ -52,6 +53,9 @@ You can tighten or loosen the release gate with policy flags:
 - `--minimum-tier trusted`: require every server to be `trusted`
 - `--minimum-tier caution`: disable tier-based failures
 - `--minimum-score N`: fail if any score is below `N`
+- `--minimum-public-controls N`: fail if any public server declares fewer than N recognized controls
+- `--minimum-risk-surface-controls N`: fail if any medium/high-risk or public server declares fewer than N recognized controls
+- `--minimum-command-controls N`: fail if any command-capable server declares fewer than N recognized controls
 
 Examples:
 
@@ -61,6 +65,9 @@ mcp-radar score --input examples/servers.json --minimum-tier trusted
 
 # Custom score bar: allow review tier, but block scores under 70
 mcp-radar score --input examples/servers.json --minimum-tier review --minimum-score 70
+
+# Block command-capable servers that don't declare at least 2 controls
+mcp-radar score --input examples/servers.json --minimum-command-controls 2
 ```
 
 ## Input fields for access posture
@@ -98,6 +105,10 @@ Scoring behavior:
 - Missing field = no prompt-injection adjustment (backward compatible)
 - High-risk/public servers with weak or empty controls receive a penalty
 - Better control coverage earns a positive adjustment
+- Command-capable servers receive an additional safeguard adjustment:
+  - `allowlist_only_tools` + `human_approval_for_writes`: bonus
+  - only one of those controls: penalty
+  - neither control: heavy penalty
 
 ```json
 {
