@@ -56,6 +56,9 @@ You can tighten or loosen the release gate with policy flags:
 - `--minimum-public-controls N`: fail if any public server declares fewer than N recognized controls
 - `--minimum-risk-surface-controls N`: fail if any medium/high-risk or public server declares fewer than N recognized controls
 - `--minimum-command-controls N`: fail if any command-capable server declares fewer than N recognized controls
+- `--min-agent-trust N`: fail if attested agent trust score is below N
+- `--max-attestation-age S`: fail if attestation is older than S seconds
+- `--on-missing-attestation [ignore|warn|fail]`: behavior when attestation data is missing while attestation policy is configured (default: `warn`)
 
 Examples:
 
@@ -68,6 +71,42 @@ mcp-radar score --input examples/servers.json --minimum-tier review --minimum-sc
 
 # Block command-capable servers that don't declare at least 2 controls
 mcp-radar score --input examples/servers.json --minimum-command-controls 2
+
+# Require external agent trust score and fresh attestation
+mcp-radar score \
+  --input examples/servers.json \
+  --agent-attestation examples/agent-attestation.json \
+  --min-agent-trust 60 \
+  --max-attestation-age 300 \
+  --on-missing-attestation fail
+```
+
+## Optional external agent attestation
+
+Use this when you want a runtime identity layer on top of server scoring.
+
+`mcp-trust-radar` scores **server risk posture**. Attestation policy gates on **agent trust posture**.
+
+Supported trust score keys:
+
+- `trust_score`
+- `score`
+- `agent_trust_score`
+
+Supported timestamp keys:
+
+- `attested_at` (ISO-8601 or epoch)
+- `timestamp` (epoch)
+- `issued_at` (ISO-8601 or epoch)
+
+Example payload:
+
+```json
+{
+  "agent_id": "agent-runner-42",
+  "trust_score": 78,
+  "attested_at": "2026-03-31T22:00:00Z"
+}
 ```
 
 ## Input fields for access posture
