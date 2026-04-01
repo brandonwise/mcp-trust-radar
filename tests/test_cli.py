@@ -47,6 +47,10 @@ def test_parser_score_command():
     assert args.minimum_public_controls is None
     assert args.minimum_risk_surface_controls is None
     assert args.minimum_command_controls is None
+    assert args.agent_attestation is None
+    assert args.min_agent_trust is None
+    assert args.max_attestation_age is None
+    assert args.on_missing_attestation == "warn"
 
 
 def test_resolve_policy_settings_balanced_defaults():

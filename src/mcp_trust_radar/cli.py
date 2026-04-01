@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, cast
 
+from .attestation import AgentAttestation, evaluate_attestation_policy, parse_attestation_file
 from .github_client import fetch_repo_metadata
 from .models import Server, TrustScore, parse_servers
 from .report import to_dict, to_markdown
@@ -133,6 +134,32 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Fail when any server with command-execution permissions has fewer than "
             "N recognized prompt-injection controls (0-6)."
+        ),
+    )
+    cmd.add_argument(
+        "--agent-attestation",
+        help=(
+            "Optional path to agent attestation JSON. "
+            "Accepted trust score keys: trust_score|score|agent_trust_score."
+        ),
+    )
+    cmd.add_argument(
+        "--min-agent-trust",
+        type=int,
+        help="Fail when attested agent trust score is below this value (0-100).",
+    )
+    cmd.add_argument(
+        "--max-attestation-age",
+        type=int,
+        help="Fail when attestation age exceeds this many seconds.",
+    )
+    cmd.add_argument(
+        "--on-missing-attestation",
+        choices=["ignore", "warn", "fail"],
+        default="warn",
+        help=(
+            "Behavior when attestation is missing but attestation policy is configured "
+            "(default: warn)."
         ),
     )
 
@@ -294,6 +321,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         raw = json.loads(Path(args.input).read_text(encoding="utf-8"))
         servers = parse_servers(raw)
 
+        attestation: Optional[AgentAttestation] = None
+        if args.agent_attestation:
+            try:
+                attestation = parse_attestation_file(args.agent_attestation)
+            except (OSError, json.JSONDecodeError, ValueError) as exc:
+                print(f"ATTESTATION ERROR: {exc}", file=sys.stderr)
+                return 2
+
         if args.live:
             hydrate_live(servers)
 
@@ -322,6 +357,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         if not passed:
             for reason in reasons:
+                print(f"GATE FAIL: {reason}", file=sys.stderr)
+            return 1
+
+        attestation_passed, attestation_failures, attestation_warnings = evaluate_attestation_policy(
+            attestation=attestation,
+            min_agent_trust=args.min_agent_trust,
+            max_attestation_age=args.max_attestation_age,
+            on_missing_attestation=args.on_missing_attestation,
+        )
+
+        for warning in attestation_warnings:
+            print(f"GATE WARN: {warning}", file=sys.stderr)
+
+        if not attestation_passed:
+            for reason in attestation_failures:
                 print(f"GATE FAIL: {reason}", file=sys.stderr)
             return 1
 
