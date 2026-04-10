@@ -24,6 +24,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_tier": "review",
         "minimum_score": None,
         "block_public_without_auth": False,
+        "block_public_command_execution": False,
         "minimum_public_controls": None,
         "minimum_risk_surface_controls": None,
         "minimum_command_controls": None,
@@ -32,6 +33,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_tier": "review",
         "minimum_score": 60,
         "block_public_without_auth": True,
+        "block_public_command_execution": True,
         "minimum_public_controls": 3,
         "minimum_risk_surface_controls": 2,
         "minimum_command_controls": 2,
@@ -40,6 +42,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_tier": "trusted",
         "minimum_score": 75,
         "block_public_without_auth": True,
+        "block_public_command_execution": True,
         "minimum_public_controls": 4,
         "minimum_risk_surface_controls": 3,
         "minimum_command_controls": 2,
@@ -73,6 +76,8 @@ def resolve_policy_settings(args: argparse.Namespace) -> Dict[str, object]:
         "minimum_score": minimum_score,
         "block_public_without_auth": args.block_public_without_auth
         or bool(preset["block_public_without_auth"]),
+        "block_public_command_execution": args.block_public_command_execution
+        or bool(preset["block_public_command_execution"]),
         "minimum_public_controls": minimum_public_controls,
         "minimum_risk_surface_controls": minimum_risk_surface_controls,
         "minimum_command_controls": minimum_command_controls,
@@ -114,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--block-public-without-auth",
         action="store_true",
         help="Fail when any publicly exposed server does not explicitly require authentication.",
+    )
+    cmd.add_argument(
+        "--block-public-command-execution",
+        action="store_true",
+        help="Fail when any publicly exposed server declares command-execution permissions.",
     )
     cmd.add_argument(
         "--minimum-public-controls",
@@ -185,6 +195,7 @@ def evaluate_gate(
     *,
     servers: Optional[Sequence[Server]] = None,
     block_public_without_auth: bool = False,
+    block_public_command_execution: bool = False,
     minimum_public_controls: Optional[int] = None,
     minimum_risk_surface_controls: Optional[int] = None,
     minimum_command_controls: Optional[int] = None,
@@ -228,6 +239,7 @@ def evaluate_gate(
 
     if (
         block_public_without_auth
+        or block_public_command_execution
         or minimum_public_controls is not None
         or minimum_risk_surface_controls is not None
         or minimum_command_controls is not None
@@ -245,6 +257,24 @@ def evaluate_gate(
                     examples += ", ..."
                 reasons.append(
                     f"{len(offenders)} publicly exposed server(s) missing explicit auth_required=true: {examples}"
+                )
+
+        if block_public_command_execution:
+            public_command_servers = []
+            for server in public_servers:
+                command_perms = execution_permissions(server.permissions)
+                if command_perms:
+                    public_command_servers.append((server.name, command_perms))
+
+            if public_command_servers:
+                examples = ", ".join(
+                    f"{name}({', '.join(perms[:2])})"
+                    for name, perms in public_command_servers[:3]
+                )
+                if len(public_command_servers) > 3:
+                    examples += ", ..."
+                reasons.append(
+                    f"{len(public_command_servers)} publicly exposed command-capable server(s) detected: {examples}"
                 )
 
         if minimum_public_controls is not None:
@@ -349,6 +379,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             minimum_score=cast(Optional[int], policy_settings["minimum_score"]),
             servers=servers,
             block_public_without_auth=bool(policy_settings["block_public_without_auth"]),
+            block_public_command_execution=bool(policy_settings["block_public_command_execution"]),
             minimum_public_controls=cast(Optional[int], policy_settings["minimum_public_controls"]),
             minimum_risk_surface_controls=cast(
                 Optional[int], policy_settings["minimum_risk_surface_controls"]
