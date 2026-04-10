@@ -56,9 +56,12 @@ You can tighten or loosen the release gate with policy flags:
 - `--minimum-public-controls N`: fail if any public server declares fewer than N recognized controls
 - `--minimum-risk-surface-controls N`: fail if any medium/high-risk or public server declares fewer than N recognized controls
 - `--minimum-command-controls N`: fail if any command-capable server declares fewer than N recognized controls
+- `--block-public-command-execution`: fail if any public server declares command-execution permissions (`exec`, `shell`, `command`, etc.)
 - `--min-agent-trust N`: fail if attested agent trust score is below N
 - `--max-attestation-age S`: fail if attestation is older than S seconds
 - `--on-missing-attestation [ignore|warn|fail]`: behavior when attestation data is missing while attestation policy is configured (default: `warn`)
+
+`internet-facing` and `strict` presets enable `--block-public-command-execution` by default.
 
 Examples:
 
@@ -71,6 +74,9 @@ mcp-radar score --input examples/servers.json --minimum-tier review --minimum-sc
 
 # Block command-capable servers that don't declare at least 2 controls
 mcp-radar score --input examples/servers.json --minimum-command-controls 2
+
+# Block any publicly exposed server with command-execution permissions
+mcp-radar score --input examples/servers.json --block-public-command-execution
 
 # Require external agent trust score and fresh attestation
 mcp-radar score \
