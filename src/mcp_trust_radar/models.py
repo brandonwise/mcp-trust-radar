@@ -16,6 +16,7 @@ class Server:
     maintainers: int = 1
     auth_required: Optional[bool] = None
     exposed_publicly: Optional[bool] = None
+    tls_enforced: Optional[bool] = None
     prompt_injection_controls: Optional[List[str]] = None
 
 
@@ -32,6 +33,8 @@ class RiskBreakdown:
     auth_penalty: int
     exposure_penalty: int
     auth_notes: List[str]
+    tls_penalty: int
+    tls_notes: List[str]
     injection_adjustment: int
     injection_label: str
     injection_notes: List[str]
@@ -114,6 +117,7 @@ def parse_servers(data: Any) -> List[Server]:
                 maintainers=int(raw.get("maintainers", 1) or 1),
                 auth_required=_as_optional_bool(raw.get("auth_required")),
                 exposed_publicly=_as_optional_bool(raw.get("exposed_publicly")),
+                tls_enforced=_as_optional_bool(raw.get("tls_enforced")),
                 prompt_injection_controls=controls,
             )
         )

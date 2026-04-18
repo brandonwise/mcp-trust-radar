@@ -134,6 +134,27 @@ def auth_posture_penalties(
     return auth_penalty, exposure_penalty, notes
 
 
+def transport_security_penalty(
+    tls_enforced: Optional[bool], exposed_publicly: Optional[bool]
+) -> Tuple[int, List[str]]:
+    notes: List[str] = []
+
+    if exposed_publicly is not True:
+        notes.append("TLS posture check not required for non-public endpoint")
+        return 0, notes
+
+    if tls_enforced is True:
+        notes.append("Public endpoint declares TLS enforcement")
+        return 0, notes
+
+    if tls_enforced is False:
+        notes.append("Public endpoint does not declare TLS enforcement")
+        return 10, notes
+
+    notes.append("Public endpoint TLS enforcement not provided")
+    return 4, notes
+
+
 def prompt_injection_posture_adjustment(
     controls: Optional[List[str]], permission_label: str, exposed_publicly: Optional[bool]
 ) -> Tuple[int, str, List[str]]:
@@ -258,6 +279,7 @@ def score_server(server: Server) -> TrustScore:
     auth_penalty, exposure_penalty, auth_notes = auth_posture_penalties(
         server.auth_required, server.exposed_publicly
     )
+    tls_penalty, tls_notes = transport_security_penalty(server.tls_enforced, server.exposed_publicly)
     injection_adjustment, injection_label, injection_notes = prompt_injection_posture_adjustment(
         server.prompt_injection_controls, permission_label, server.exposed_publicly
     )
@@ -276,6 +298,7 @@ def score_server(server: Server) -> TrustScore:
     score -= permission_penalty
     score -= auth_penalty
     score -= exposure_penalty
+    score -= tls_penalty
     score -= stale
     score -= issues
     score += popularity
@@ -297,6 +320,8 @@ def score_server(server: Server) -> TrustScore:
         auth_penalty=auth_penalty,
         exposure_penalty=exposure_penalty,
         auth_notes=auth_notes,
+        tls_penalty=tls_penalty,
+        tls_notes=tls_notes,
         injection_adjustment=injection_adjustment,
         injection_label=injection_label,
         injection_notes=injection_notes,

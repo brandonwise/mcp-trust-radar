@@ -27,6 +27,7 @@
       "maintainers": 2,
       "auth_required": true,
       "exposed_publicly": true,
+      "tls_enforced": true,
       "prompt_injection_controls": [
         "allowlist_only_tools",
         "tool_argument_validation",
@@ -42,6 +43,7 @@
       "maintainers": 1,
       "auth_required": false,
       "exposed_publicly": true,
+      "tls_enforced": false,
       "prompt_injection_controls": []
     }
   ]

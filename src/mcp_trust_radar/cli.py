@@ -24,6 +24,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_tier": "review",
         "minimum_score": None,
         "block_public_without_auth": False,
+        "block_public_without_tls": False,
         "block_public_command_execution": False,
         "minimum_public_controls": None,
         "minimum_risk_surface_controls": None,
@@ -33,6 +34,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_tier": "review",
         "minimum_score": 60,
         "block_public_without_auth": True,
+        "block_public_without_tls": True,
         "block_public_command_execution": True,
         "minimum_public_controls": 3,
         "minimum_risk_surface_controls": 2,
@@ -42,6 +44,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_tier": "trusted",
         "minimum_score": 75,
         "block_public_without_auth": True,
+        "block_public_without_tls": True,
         "block_public_command_execution": True,
         "minimum_public_controls": 4,
         "minimum_risk_surface_controls": 3,
@@ -76,6 +79,8 @@ def resolve_policy_settings(args: argparse.Namespace) -> Dict[str, object]:
         "minimum_score": minimum_score,
         "block_public_without_auth": args.block_public_without_auth
         or bool(preset["block_public_without_auth"]),
+        "block_public_without_tls": args.block_public_without_tls
+        or bool(preset["block_public_without_tls"]),
         "block_public_command_execution": args.block_public_command_execution
         or bool(preset["block_public_command_execution"]),
         "minimum_public_controls": minimum_public_controls,
@@ -119,6 +124,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--block-public-without-auth",
         action="store_true",
         help="Fail when any publicly exposed server does not explicitly require authentication.",
+    )
+    cmd.add_argument(
+        "--block-public-without-tls",
+        action="store_true",
+        help="Fail when any publicly exposed server does not explicitly declare TLS enforcement.",
     )
     cmd.add_argument(
         "--block-public-command-execution",
@@ -195,6 +205,7 @@ def evaluate_gate(
     *,
     servers: Optional[Sequence[Server]] = None,
     block_public_without_auth: bool = False,
+    block_public_without_tls: bool = False,
     block_public_command_execution: bool = False,
     minimum_public_controls: Optional[int] = None,
     minimum_risk_surface_controls: Optional[int] = None,
@@ -239,6 +250,7 @@ def evaluate_gate(
 
     if (
         block_public_without_auth
+        or block_public_without_tls
         or block_public_command_execution
         or minimum_public_controls is not None
         or minimum_risk_surface_controls is not None
@@ -257,6 +269,16 @@ def evaluate_gate(
                     examples += ", ..."
                 reasons.append(
                     f"{len(offenders)} publicly exposed server(s) missing explicit auth_required=true: {examples}"
+                )
+
+        if block_public_without_tls:
+            offenders = [server for server in public_servers if server.tls_enforced is not True]
+            if offenders:
+                examples = ", ".join(server.name for server in offenders[:3])
+                if len(offenders) > 3:
+                    examples += ", ..."
+                reasons.append(
+                    f"{len(offenders)} publicly exposed server(s) missing explicit tls_enforced=true: {examples}"
                 )
 
         if block_public_command_execution:
@@ -379,6 +401,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             minimum_score=cast(Optional[int], policy_settings["minimum_score"]),
             servers=servers,
             block_public_without_auth=bool(policy_settings["block_public_without_auth"]),
+            block_public_without_tls=bool(policy_settings["block_public_without_tls"]),
             block_public_command_execution=bool(policy_settings["block_public_command_execution"]),
             minimum_public_controls=cast(Optional[int], policy_settings["minimum_public_controls"]),
             minimum_risk_surface_controls=cast(
