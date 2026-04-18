@@ -23,6 +23,7 @@ This project gives you a repeatable first-pass filter so you can:
 - Permission risk (read-only vs shell/write/network capabilities)
 - Authentication posture (`auth_required`)
 - Public exposure posture (`exposed_publicly`)
+- Transport security posture (`tls_enforced`) for public endpoints
 - Prompt-injection hardening controls (`prompt_injection_controls`)
 - Command-execution safeguard posture (allowlist + human approval controls for command-capable servers)
 - Maintenance health (how stale the repo is)
@@ -53,6 +54,7 @@ You can tighten or loosen the release gate with policy flags:
 - `--minimum-tier trusted`: require every server to be `trusted`
 - `--minimum-tier caution`: disable tier-based failures
 - `--minimum-score N`: fail if any score is below `N`
+- `--block-public-without-tls`: fail if any public server does not explicitly declare TLS enforcement
 - `--minimum-public-controls N`: fail if any public server declares fewer than N recognized controls
 - `--minimum-risk-surface-controls N`: fail if any medium/high-risk or public server declares fewer than N recognized controls
 - `--minimum-command-controls N`: fail if any command-capable server declares fewer than N recognized controls
@@ -61,7 +63,7 @@ You can tighten or loosen the release gate with policy flags:
 - `--max-attestation-age S`: fail if attestation is older than S seconds
 - `--on-missing-attestation [ignore|warn|fail]`: behavior when attestation data is missing while attestation policy is configured (default: `warn`)
 
-`internet-facing` and `strict` presets enable `--block-public-command-execution` by default.
+`internet-facing` and `strict` presets enable `--block-public-without-tls` and `--block-public-command-execution` by default.
 
 Examples:
 
@@ -77,6 +79,9 @@ mcp-radar score --input examples/servers.json --minimum-command-controls 2
 
 # Block any publicly exposed server with command-execution permissions
 mcp-radar score --input examples/servers.json --block-public-command-execution
+
+# Block any publicly exposed server that does not explicitly enforce TLS
+mcp-radar score --input examples/servers.json --block-public-without-tls
 
 # Require external agent trust score and fresh attestation
 mcp-radar score \
@@ -115,12 +120,13 @@ Example payload:
 }
 ```
 
-## Input fields for access posture
+## Input fields for access and transport posture
 
-`auth_required` and `exposed_publicly` are optional booleans. When provided, they influence score:
+`auth_required`, `exposed_publicly`, and `tls_enforced` are optional booleans. When provided, they influence score:
 
 - Public + no auth gets a heavy penalty
 - Public + auth gets a smaller penalty
+- Public + no TLS declaration adds a transport penalty
 - Missing fields keep backward-compatible scoring behavior
 
 ```json
@@ -128,7 +134,8 @@ Example payload:
   "name": "ticket-helper",
   "permissions": ["issues:read", "issues:update"],
   "auth_required": true,
-  "exposed_publicly": true
+  "exposed_publicly": true,
+  "tls_enforced": true
 }
 ```
 

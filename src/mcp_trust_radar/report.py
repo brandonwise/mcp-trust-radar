@@ -19,6 +19,8 @@ def to_dict(scores: List[TrustScore]) -> dict:
                     "auth_penalty": s.breakdown.auth_penalty,
                     "exposure_penalty": s.breakdown.exposure_penalty,
                     "auth_notes": s.breakdown.auth_notes,
+                    "tls_penalty": s.breakdown.tls_penalty,
+                    "tls_notes": s.breakdown.tls_notes,
                     "injection_adjustment": s.breakdown.injection_adjustment,
                     "injection_label": s.breakdown.injection_label,
                     "injection_notes": s.breakdown.injection_notes,
@@ -61,12 +63,15 @@ def to_markdown(scores: List[TrustScore]) -> str:
             lines.append(f"- {n}")
         for n in s.breakdown.auth_notes:
             lines.append(f"- {n}")
+        for n in s.breakdown.tls_notes:
+            lines.append(f"- {n}")
         for n in s.breakdown.injection_notes:
             lines.append(f"- {n}")
         for n in s.breakdown.command_safeguard_notes:
             lines.append(f"- {n}")
         lines.append(f"- Auth penalty: {s.breakdown.auth_penalty}")
         lines.append(f"- Exposure penalty: {s.breakdown.exposure_penalty}")
+        lines.append(f"- TLS penalty: {s.breakdown.tls_penalty}")
         lines.append(f"- Prompt-injection adjustment: {s.breakdown.injection_adjustment:+d}")
         lines.append(f"- Command safeguard adjustment: {s.breakdown.command_safeguard_adjustment:+d}")
         lines.append(f"- Stale penalty: {s.breakdown.stale_penalty}")

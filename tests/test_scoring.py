@@ -59,6 +59,27 @@ def test_public_unauthenticated_server_is_penalized_vs_authenticated():
     assert unauthenticated.breakdown.exposure_penalty == 12
 
 
+def test_public_server_without_tls_is_penalized_vs_tls_enforced():
+    baseline = {
+        "name": "public-api",
+        "permissions": ["docs:read"],
+        "stars": 60,
+        "open_issues": 8,
+        "last_commit_days_ago": 20,
+        "license": "MIT",
+        "maintainers": 2,
+        "auth_required": True,
+        "exposed_publicly": True,
+    }
+
+    with_tls = score_server(Server(**baseline, tls_enforced=True))
+    without_tls = score_server(Server(**baseline, tls_enforced=False))
+
+    assert with_tls.score > without_tls.score
+    assert with_tls.breakdown.tls_penalty == 0
+    assert without_tls.breakdown.tls_penalty == 10
+
+
 def test_prompt_injection_controls_raise_score_for_public_server():
     base = {
         "name": "public-helper",
@@ -174,6 +195,7 @@ def test_parse_servers_supports_list_input_and_boolean_strings():
                 "name": "ingress",
                 "auth_required": "yes",
                 "exposed_publicly": "0",
+                "tls_enforced": "true",
                 "prompt_injection_controls": "allowlist_only_tools,tool_argument_validation",
             }
         ]
@@ -182,6 +204,7 @@ def test_parse_servers_supports_list_input_and_boolean_strings():
     assert len(servers) == 1
     assert servers[0].auth_required is True
     assert servers[0].exposed_publicly is False
+    assert servers[0].tls_enforced is True
     assert servers[0].prompt_injection_controls == [
         "allowlist_only_tools",
         "tool_argument_validation",
