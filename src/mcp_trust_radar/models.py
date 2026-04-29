@@ -18,6 +18,8 @@ class Server:
     exposed_publicly: Optional[bool] = None
     tls_enforced: Optional[bool] = None
     prompt_injection_controls: Optional[List[str]] = None
+    credential_posture: Optional[str] = None
+    credential_controls: Optional[List[str]] = None
 
 
 @dataclass
@@ -35,6 +37,9 @@ class RiskBreakdown:
     auth_notes: List[str]
     tls_penalty: int
     tls_notes: List[str]
+    credential_posture_adjustment: int
+    credential_posture_label: str
+    credential_posture_notes: List[str]
     injection_adjustment: int
     injection_label: str
     injection_notes: List[str]
@@ -100,6 +105,18 @@ def parse_servers(data: Any) -> List[Server]:
             if "prompt_injection_controls" in raw
             else None
         )
+        credential_controls = (
+            _as_string_list(raw.get("credential_controls"), "credential_controls")
+            if "credential_controls" in raw
+            else None
+        )
+        credential_posture = (
+            str(raw.get("credential_posture")).strip()
+            if raw.get("credential_posture") is not None
+            else None
+        )
+        if credential_posture == "":
+            credential_posture = None
 
         servers.append(
             Server(
@@ -119,6 +136,8 @@ def parse_servers(data: Any) -> List[Server]:
                 exposed_publicly=_as_optional_bool(raw.get("exposed_publicly")),
                 tls_enforced=_as_optional_bool(raw.get("tls_enforced")),
                 prompt_injection_controls=controls,
+                credential_posture=credential_posture,
+                credential_controls=credential_controls,
             )
         )
 

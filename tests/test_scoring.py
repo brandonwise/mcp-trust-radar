@@ -110,6 +110,83 @@ def test_prompt_injection_controls_raise_score_for_public_server():
     assert with_controls.breakdown.injection_label in {"moderate", "strong"}
 
 
+def test_shared_service_account_is_penalized_vs_per_user_credentials():
+    base = {
+        "name": "public-helper",
+        "permissions": ["issues:update", "network:http"],
+        "stars": 120,
+        "open_issues": 6,
+        "last_commit_days_ago": 14,
+        "license": "MIT",
+        "maintainers": 3,
+        "auth_required": True,
+        "exposed_publicly": True,
+        "prompt_injection_controls": [
+            "allowlist_only_tools",
+            "tool_description_sanitization",
+            "tool_argument_validation",
+        ],
+    }
+
+    per_user = score_server(
+        Server(
+            **base,
+            credential_posture="per-user",
+            credential_controls=[
+                "scoped_tokens",
+                "short_lived_tokens",
+                "resource_scoped_tokens",
+            ],
+        )
+    )
+    shared = score_server(
+        Server(
+            **base,
+            credential_posture="shared-service-account",
+            credential_controls=[],
+        )
+    )
+
+    assert per_user.score > shared.score
+    assert per_user.breakdown.credential_posture_adjustment > (
+        shared.breakdown.credential_posture_adjustment
+    )
+    assert shared.breakdown.credential_posture_label == "shared-service-account"
+
+
+def test_credential_controls_raise_score_for_risk_surface_server():
+    base = {
+        "name": "ops-helper",
+        "permissions": ["issues:update", "network:http"],
+        "stars": 40,
+        "open_issues": 4,
+        "last_commit_days_ago": 15,
+        "license": "MIT",
+        "maintainers": 2,
+        "auth_required": True,
+        "exposed_publicly": True,
+        "credential_posture": "service-account",
+    }
+
+    without_controls = score_server(Server(**base, credential_controls=[]))
+    with_controls = score_server(
+        Server(
+            **base,
+            credential_controls=[
+                "scoped_tokens",
+                "short_lived_tokens",
+                "resource_scoped_tokens",
+                "token_rotation",
+            ],
+        )
+    )
+
+    assert with_controls.score > without_controls.score
+    assert with_controls.breakdown.credential_posture_adjustment > (
+        without_controls.breakdown.credential_posture_adjustment
+    )
+
+
 def test_command_capable_server_is_penalized_without_execution_safeguards():
     base = {
         "name": "command-runner",
@@ -197,6 +274,8 @@ def test_parse_servers_supports_list_input_and_boolean_strings():
                 "exposed_publicly": "0",
                 "tls_enforced": "true",
                 "prompt_injection_controls": "allowlist_only_tools,tool_argument_validation",
+                "credential_posture": "shared_service_account",
+                "credential_controls": "scoped_tokens,short_lived_tokens",
             }
         ]
     )
@@ -209,3 +288,5 @@ def test_parse_servers_supports_list_input_and_boolean_strings():
         "allowlist_only_tools",
         "tool_argument_validation",
     ]
+    assert servers[0].credential_posture == "shared_service_account"
+    assert servers[0].credential_controls == ["scoped_tokens", "short_lived_tokens"]

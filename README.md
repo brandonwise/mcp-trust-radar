@@ -24,6 +24,7 @@ This project gives you a repeatable first-pass filter so you can:
 - Authentication posture (`auth_required`)
 - Public exposure posture (`exposed_publicly`)
 - Transport security posture (`tls_enforced`) for public endpoints
+- Credential posture (`credential_posture`) and credential hygiene controls (`credential_controls`)
 - Prompt-injection hardening controls (`prompt_injection_controls`)
 - Command-execution safeguard posture (allowlist + human approval controls for command-capable servers)
 - Maintenance health (how stale the repo is)
@@ -58,12 +59,14 @@ You can tighten or loosen the release gate with policy flags:
 - `--minimum-public-controls N`: fail if any public server declares fewer than N recognized controls
 - `--minimum-risk-surface-controls N`: fail if any medium/high-risk or public server declares fewer than N recognized controls
 - `--minimum-command-controls N`: fail if any command-capable server declares fewer than N recognized controls
+- `--block-shared-service-account`: fail if any server declares shared-service-account credentials
+- `--minimum-credential-controls N`: fail if any medium/high-risk or public server declares fewer than N recognized credential controls
 - `--block-public-command-execution`: fail if any public server declares command-execution permissions (`exec`, `shell`, `command`, etc.)
 - `--min-agent-trust N`: fail if attested agent trust score is below N
 - `--max-attestation-age S`: fail if attestation is older than S seconds
 - `--on-missing-attestation [ignore|warn|fail]`: behavior when attestation data is missing while attestation policy is configured (default: `warn`)
 
-`internet-facing` and `strict` presets enable `--block-public-without-tls` and `--block-public-command-execution` by default.
+`internet-facing` and `strict` presets enable `--block-public-without-tls`, `--block-public-command-execution`, and `--block-shared-service-account` by default.
 
 Examples:
 
@@ -82,6 +85,9 @@ mcp-radar score --input examples/servers.json --block-public-command-execution
 
 # Block any publicly exposed server that does not explicitly enforce TLS
 mcp-radar score --input examples/servers.json --block-public-without-tls
+
+# Block shared service-account credentials and require 2 credential hygiene controls
+mcp-radar score --input examples/servers.json --block-shared-service-account --minimum-credential-controls 2
 
 # Require external agent trust score and fresh attestation
 mcp-radar score \
@@ -173,6 +179,43 @@ Scoring behavior:
     "tool_description_sanitization",
     "tool_argument_validation",
     "human_approval_for_writes"
+  ]
+}
+```
+
+## Input fields for credential posture
+
+`credential_posture` is optional. It accepts values like `per-user`, `service-account`, or `shared-service-account`.
+
+`credential_controls` is optional. It accepts either a JSON array or a comma-separated string.
+
+Recognized controls:
+
+- `scoped_tokens`
+- `short_lived_tokens`
+- `resource_scoped_tokens`
+- `token_rotation`
+- `per_request_reauth`
+
+Scoring behavior:
+
+- Shared service-account credentials are penalized heavily, especially on public or higher-risk servers
+- Per-user credentials get a positive adjustment
+- Risk-surface servers with weak credential controls lose points
+- `internet-facing` and `strict` presets can gate on shared credentials and control coverage
+
+```json
+{
+  "name": "ticket-helper",
+  "permissions": ["issues:read", "issues:update"],
+  "auth_required": true,
+  "exposed_publicly": true,
+  "tls_enforced": true,
+  "credential_posture": "service-account",
+  "credential_controls": [
+    "scoped_tokens",
+    "short_lived_tokens",
+    "token_rotation"
   ]
 }
 ```

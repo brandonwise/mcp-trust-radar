@@ -11,6 +11,8 @@
       "maintainers": 6,
       "auth_required": true,
       "exposed_publicly": false,
+      "credential_posture": "per-user",
+      "credential_controls": ["scoped_tokens", "short_lived_tokens", "resource_scoped_tokens"],
       "prompt_injection_controls": [
         "allowlist_only_tools",
         "tool_description_sanitization",
@@ -28,6 +30,8 @@
       "auth_required": true,
       "exposed_publicly": true,
       "tls_enforced": true,
+      "credential_posture": "service-account",
+      "credential_controls": ["scoped_tokens", "short_lived_tokens", "token_rotation"],
       "prompt_injection_controls": [
         "allowlist_only_tools",
         "tool_argument_validation",
@@ -44,6 +48,8 @@
       "auth_required": false,
       "exposed_publicly": true,
       "tls_enforced": false,
+      "credential_posture": "shared-service-account",
+      "credential_controls": [],
       "prompt_injection_controls": []
     }
   ]

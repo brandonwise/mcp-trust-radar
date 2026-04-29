@@ -11,7 +11,14 @@ from .attestation import AgentAttestation, evaluate_attestation_policy, parse_at
 from .github_client import fetch_repo_metadata
 from .models import Server, TrustScore, parse_servers
 from .report import to_dict, to_markdown
-from .scoring import execution_permissions, normalize_prompt_injection_controls, permission_risk, score_all
+from .scoring import (
+    execution_permissions,
+    normalize_credential_controls,
+    normalize_credential_posture,
+    normalize_prompt_injection_controls,
+    permission_risk,
+    score_all,
+)
 
 TIER_RANK = {
     "caution": 0,
@@ -29,6 +36,8 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_public_controls": None,
         "minimum_risk_surface_controls": None,
         "minimum_command_controls": None,
+        "block_shared_service_account": False,
+        "minimum_credential_controls": None,
     },
     "internet-facing": {
         "minimum_tier": "review",
@@ -39,6 +48,8 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_public_controls": 3,
         "minimum_risk_surface_controls": 2,
         "minimum_command_controls": 2,
+        "block_shared_service_account": True,
+        "minimum_credential_controls": 2,
     },
     "strict": {
         "minimum_tier": "trusted",
@@ -49,6 +60,8 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_public_controls": 4,
         "minimum_risk_surface_controls": 3,
         "minimum_command_controls": 2,
+        "block_shared_service_account": True,
+        "minimum_credential_controls": 3,
     },
 }
 
@@ -73,6 +86,11 @@ def resolve_policy_settings(args: argparse.Namespace) -> Dict[str, object]:
         if args.minimum_command_controls is not None
         else preset["minimum_command_controls"]
     )
+    minimum_credential_controls = (
+        args.minimum_credential_controls
+        if args.minimum_credential_controls is not None
+        else preset["minimum_credential_controls"]
+    )
 
     return {
         "minimum_tier": minimum_tier,
@@ -86,6 +104,9 @@ def resolve_policy_settings(args: argparse.Namespace) -> Dict[str, object]:
         "minimum_public_controls": minimum_public_controls,
         "minimum_risk_surface_controls": minimum_risk_surface_controls,
         "minimum_command_controls": minimum_command_controls,
+        "block_shared_service_account": args.block_shared_service_account
+        or bool(preset["block_shared_service_account"]),
+        "minimum_credential_controls": minimum_credential_controls,
     }
 
 
@@ -157,6 +178,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     cmd.add_argument(
+        "--block-shared-service-account",
+        action="store_true",
+        help="Fail when any server declares shared-service-account credentials.",
+    )
+    cmd.add_argument(
+        "--minimum-credential-controls",
+        type=int,
+        help=(
+            "Fail when any medium/high-risk or publicly exposed server has fewer than "
+            "N recognized credential controls (0-5)."
+        ),
+    )
+    cmd.add_argument(
         "--agent-attestation",
         help=(
             "Optional path to agent attestation JSON. "
@@ -210,6 +244,8 @@ def evaluate_gate(
     minimum_public_controls: Optional[int] = None,
     minimum_risk_surface_controls: Optional[int] = None,
     minimum_command_controls: Optional[int] = None,
+    block_shared_service_account: bool = False,
+    minimum_credential_controls: Optional[int] = None,
 ) -> Tuple[bool, List[str]]:
     if minimum_tier not in TIER_RANK:
         raise ValueError(f"Unknown tier: {minimum_tier}")
@@ -225,6 +261,9 @@ def evaluate_gate(
 
     if minimum_command_controls is not None and not (0 <= minimum_command_controls <= 6):
         raise ValueError("--minimum-command-controls must be between 0 and 6")
+
+    if minimum_credential_controls is not None and not (0 <= minimum_credential_controls <= 5):
+        raise ValueError("--minimum-credential-controls must be between 0 and 5")
 
     reasons: List[str] = []
 
@@ -255,6 +294,8 @@ def evaluate_gate(
         or minimum_public_controls is not None
         or minimum_risk_surface_controls is not None
         or minimum_command_controls is not None
+        or block_shared_service_account
+        or minimum_credential_controls is not None
     ):
         if servers is None:
             raise ValueError("servers are required for posture policy checks")
@@ -362,6 +403,46 @@ def evaluate_gate(
                     f"{len(weak_command)} command-capable server(s) declared fewer than {minimum_command_controls} prompt-injection controls: {examples}"
                 )
 
+        if block_shared_service_account:
+            shared_credential_offenders: List[str] = []
+            for server in servers:
+                normalized_posture, _ = normalize_credential_posture(server.credential_posture)
+                if normalized_posture == "shared-service-account":
+                    shared_credential_offenders.append(server.name)
+
+            if shared_credential_offenders:
+                examples = ", ".join(shared_credential_offenders[:3])
+                if len(shared_credential_offenders) > 3:
+                    examples += ", ..."
+                reasons.append(
+                    f"{len(shared_credential_offenders)} server(s) declare shared-service-account credentials: {examples}"
+                )
+
+        if minimum_credential_controls is not None:
+            weak_credentials = []
+            for server in servers:
+                _, permission_label, _ = permission_risk(server.permissions)
+                risk_surface = server.exposed_publicly is True or permission_label in {"medium", "high"}
+                if not risk_surface:
+                    continue
+
+                normalized_controls, _ = normalize_credential_controls(server.credential_controls)
+                if len(normalized_controls) < minimum_credential_controls:
+                    normalized_posture, _ = normalize_credential_posture(server.credential_posture)
+                    posture = normalized_posture or "unknown posture"
+                    weak_credentials.append((server.name, len(normalized_controls), posture))
+
+            if weak_credentials:
+                examples = ", ".join(
+                    f"{name}({count}; {posture})"
+                    for name, count, posture in weak_credentials[:3]
+                )
+                if len(weak_credentials) > 3:
+                    examples += ", ..."
+                reasons.append(
+                    f"{len(weak_credentials)} risk-surface server(s) declared fewer than {minimum_credential_controls} credential controls: {examples}"
+                )
+
     return len(reasons) == 0, reasons
 
 
@@ -408,6 +489,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                 Optional[int], policy_settings["minimum_risk_surface_controls"]
             ),
             minimum_command_controls=cast(Optional[int], policy_settings["minimum_command_controls"]),
+            block_shared_service_account=bool(policy_settings["block_shared_service_account"]),
+            minimum_credential_controls=cast(
+                Optional[int], policy_settings["minimum_credential_controls"]
+            ),
         )
         if not passed:
             for reason in reasons:

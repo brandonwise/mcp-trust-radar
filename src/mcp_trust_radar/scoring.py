@@ -42,6 +42,26 @@ PROMPT_INJECTION_CONTROLS = {
     "human_approval_for_writes",
 }
 
+CREDENTIAL_CONTROLS = {
+    "scoped_tokens",
+    "short_lived_tokens",
+    "resource_scoped_tokens",
+    "token_rotation",
+    "per_request_reauth",
+}
+
+CREDENTIAL_POSTURE_ALIASES = {
+    "per-user": "per-user",
+    "per-user-identity": "per-user",
+    "user-delegated": "per-user",
+    "user_delegated": "per-user",
+    "service-account": "service-account",
+    "service_account": "service-account",
+    "shared-service-account": "shared-service-account",
+    "shared_service_account": "shared-service-account",
+    "shared-service-account-credentials": "shared-service-account",
+}
+
 
 def normalize_prompt_injection_controls(controls: Optional[List[str]]) -> Tuple[List[str], List[str]]:
     if not controls:
@@ -57,6 +77,38 @@ def normalize_prompt_injection_controls(controls: Optional[List[str]]) -> Tuple[
             continue
         seen.add(key)
         if key in PROMPT_INJECTION_CONTROLS:
+            normalized.append(key)
+        else:
+            unknown.append(control)
+
+    return normalized, unknown
+
+
+def normalize_credential_posture(posture: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    if posture is None:
+        return None, None
+
+    key = posture.strip().lower().replace(" ", "-").replace("_", "-")
+    normalized = CREDENTIAL_POSTURE_ALIASES.get(key)
+    if normalized is None:
+        return None, posture
+    return normalized, None
+
+
+def normalize_credential_controls(controls: Optional[List[str]]) -> Tuple[List[str], List[str]]:
+    if not controls:
+        return [], []
+
+    normalized: List[str] = []
+    unknown: List[str] = []
+    seen = set()
+
+    for control in controls:
+        key = control.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        if key in CREDENTIAL_CONTROLS:
             normalized.append(key)
         else:
             unknown.append(control)
@@ -153,6 +205,74 @@ def transport_security_penalty(
 
     notes.append("Public endpoint TLS enforcement not provided")
     return 4, notes
+
+
+def credential_posture_adjustment(
+    credential_posture: Optional[str],
+    credential_controls: Optional[List[str]],
+    permission_label: str,
+    exposed_publicly: Optional[bool],
+) -> Tuple[int, str, List[str]]:
+    notes: List[str] = []
+    normalized_posture, unknown_posture = normalize_credential_posture(credential_posture)
+    normalized_controls, unknown_controls = normalize_credential_controls(credential_controls)
+    risk_surface = permission_label in {"medium", "high"} or exposed_publicly is True
+
+    posture_adjustment = 0
+    label = normalized_posture or "unknown"
+
+    if normalized_posture == "per-user":
+        posture_adjustment = 4 if risk_surface else 3
+        notes.append("Credentials are bound to individual user identity")
+    elif normalized_posture == "service-account":
+        posture_adjustment = -4 if risk_surface else -2
+        notes.append("Credentials use a service account")
+    elif normalized_posture == "shared-service-account":
+        posture_adjustment = -12 if risk_surface else -8
+        notes.append("Credentials use a shared service account")
+    elif unknown_posture is not None:
+        notes.append(f"Unrecognized credential posture ignored: {unknown_posture}")
+    else:
+        notes.append("Credential posture not provided")
+
+    if credential_controls is None:
+        notes.append("Credential controls not provided")
+        return posture_adjustment, label, notes
+
+    coverage = len(normalized_controls)
+    if risk_surface:
+        if coverage >= 4:
+            controls_adjustment = 4
+        elif coverage == 3:
+            controls_adjustment = 2
+        elif coverage == 2:
+            controls_adjustment = -1
+        elif coverage == 1:
+            controls_adjustment = -4
+        else:
+            controls_adjustment = -8
+    else:
+        if coverage >= 3:
+            controls_adjustment = 2
+        elif coverage >= 1:
+            controls_adjustment = 1
+        else:
+            controls_adjustment = 0
+
+    if coverage:
+        notes.append(f"Credential controls declared: {', '.join(sorted(normalized_controls))}")
+    else:
+        notes.append("No credential controls declared")
+
+    if unknown_controls:
+        notes.append(
+            f"Unrecognized credential controls ignored: {', '.join(sorted(str(item) for item in unknown_controls))}"
+        )
+
+    if risk_surface and coverage < 2:
+        notes.append("High-risk/public server should declare at least 2 credential controls")
+
+    return posture_adjustment + controls_adjustment, label, notes
 
 
 def prompt_injection_posture_adjustment(
@@ -280,6 +400,12 @@ def score_server(server: Server) -> TrustScore:
         server.auth_required, server.exposed_publicly
     )
     tls_penalty, tls_notes = transport_security_penalty(server.tls_enforced, server.exposed_publicly)
+    credential_adjustment, credential_label, credential_notes = credential_posture_adjustment(
+        server.credential_posture,
+        server.credential_controls,
+        permission_label,
+        server.exposed_publicly,
+    )
     injection_adjustment, injection_label, injection_notes = prompt_injection_posture_adjustment(
         server.prompt_injection_controls, permission_label, server.exposed_publicly
     )
@@ -304,6 +430,7 @@ def score_server(server: Server) -> TrustScore:
     score += popularity
     score += license_adjustment
     score += maintainer_bonus
+    score += credential_adjustment
     score += injection_adjustment
     score += command_adjustment
     score = max(0, min(score, 100))
@@ -322,6 +449,9 @@ def score_server(server: Server) -> TrustScore:
         auth_notes=auth_notes,
         tls_penalty=tls_penalty,
         tls_notes=tls_notes,
+        credential_posture_adjustment=credential_adjustment,
+        credential_posture_label=credential_label,
+        credential_posture_notes=credential_notes,
         injection_adjustment=injection_adjustment,
         injection_label=injection_label,
         injection_notes=injection_notes,
