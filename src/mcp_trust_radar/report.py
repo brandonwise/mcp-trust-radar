@@ -21,6 +21,9 @@ def to_dict(scores: List[TrustScore]) -> dict:
                     "auth_notes": s.breakdown.auth_notes,
                     "tls_penalty": s.breakdown.tls_penalty,
                     "tls_notes": s.breakdown.tls_notes,
+                    "credential_posture_adjustment": s.breakdown.credential_posture_adjustment,
+                    "credential_posture_label": s.breakdown.credential_posture_label,
+                    "credential_posture_notes": s.breakdown.credential_posture_notes,
                     "injection_adjustment": s.breakdown.injection_adjustment,
                     "injection_label": s.breakdown.injection_label,
                     "injection_notes": s.breakdown.injection_notes,
@@ -42,14 +45,15 @@ def to_markdown(scores: List[TrustScore]) -> str:
     lines = [
         "# MCP Trust Radar Report",
         "",
-        "| Server | Score | Tier | Permission Risk | Injection Posture | Cmd Safeguards |",
-        "|---|---:|---|---|---|---|",
+        "| Server | Score | Tier | Permission Risk | Credentials | Injection Posture | Cmd Safeguards |",
+        "|---|---:|---|---|---|---|---|",
     ]
     for s in scores:
         lines.append(
             "| "
             f"{s.name} | {s.score} | {s.tier} | "
             f"{s.breakdown.permission_label} ({s.breakdown.permission_risk}) | "
+            f"{s.breakdown.credential_posture_label} ({s.breakdown.credential_posture_adjustment:+d}) | "
             f"{s.breakdown.injection_label} ({s.breakdown.injection_adjustment:+d}) | "
             f"{s.breakdown.command_safeguard_adjustment:+d} |"
         )
@@ -65,6 +69,8 @@ def to_markdown(scores: List[TrustScore]) -> str:
             lines.append(f"- {n}")
         for n in s.breakdown.tls_notes:
             lines.append(f"- {n}")
+        for n in s.breakdown.credential_posture_notes:
+            lines.append(f"- {n}")
         for n in s.breakdown.injection_notes:
             lines.append(f"- {n}")
         for n in s.breakdown.command_safeguard_notes:
@@ -72,6 +78,9 @@ def to_markdown(scores: List[TrustScore]) -> str:
         lines.append(f"- Auth penalty: {s.breakdown.auth_penalty}")
         lines.append(f"- Exposure penalty: {s.breakdown.exposure_penalty}")
         lines.append(f"- TLS penalty: {s.breakdown.tls_penalty}")
+        lines.append(
+            f"- Credential posture adjustment: {s.breakdown.credential_posture_adjustment:+d}"
+        )
         lines.append(f"- Prompt-injection adjustment: {s.breakdown.injection_adjustment:+d}")
         lines.append(f"- Command safeguard adjustment: {s.breakdown.command_safeguard_adjustment:+d}")
         lines.append(f"- Stale penalty: {s.breakdown.stale_penalty}")

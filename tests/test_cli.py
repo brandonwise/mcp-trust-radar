@@ -49,6 +49,8 @@ def test_parser_score_command():
     assert args.minimum_public_controls is None
     assert args.minimum_risk_surface_controls is None
     assert args.minimum_command_controls is None
+    assert args.block_shared_service_account is False
+    assert args.minimum_credential_controls is None
     assert args.agent_attestation is None
     assert args.min_agent_trust is None
     assert args.max_attestation_age is None
@@ -69,6 +71,8 @@ def test_resolve_policy_settings_balanced_defaults():
     assert policy["minimum_public_controls"] is None
     assert policy["minimum_risk_surface_controls"] is None
     assert policy["minimum_command_controls"] is None
+    assert policy["block_shared_service_account"] is False
+    assert policy["minimum_credential_controls"] is None
 
 
 def test_resolve_policy_settings_strict_defaults():
@@ -85,6 +89,8 @@ def test_resolve_policy_settings_strict_defaults():
     assert policy["minimum_public_controls"] == 4
     assert policy["minimum_risk_surface_controls"] == 3
     assert policy["minimum_command_controls"] == 2
+    assert policy["block_shared_service_account"] is True
+    assert policy["minimum_credential_controls"] == 3
 
 
 def test_resolve_policy_settings_allows_individual_overrides():
@@ -100,6 +106,8 @@ def test_resolve_policy_settings_allows_individual_overrides():
             "85",
             "--minimum-public-controls",
             "5",
+            "--minimum-credential-controls",
+            "4",
         ]
     )
 
@@ -113,6 +121,8 @@ def test_resolve_policy_settings_allows_individual_overrides():
     assert policy["minimum_public_controls"] == 5
     assert policy["minimum_risk_surface_controls"] == 2
     assert policy["minimum_command_controls"] == 2
+    assert policy["block_shared_service_account"] is True
+    assert policy["minimum_credential_controls"] == 4
 
 
 def test_evaluate_gate_blocks_caution_by_default():
@@ -159,6 +169,11 @@ def test_evaluate_gate_rejects_invalid_minimum_command_controls():
         evaluate_gate(_sample_scores(), minimum_command_controls=7)
 
 
+def test_evaluate_gate_rejects_invalid_minimum_credential_controls():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), minimum_credential_controls=6)
+
+
 def test_evaluate_gate_requires_servers_for_public_policy_checks():
     with pytest.raises(ValueError):
         evaluate_gate(_sample_scores(), block_public_without_auth=True)
@@ -182,6 +197,16 @@ def test_evaluate_gate_requires_servers_for_risk_surface_policy_checks():
 def test_evaluate_gate_requires_servers_for_command_policy_checks():
     with pytest.raises(ValueError):
         evaluate_gate(_sample_scores(), minimum_command_controls=2)
+
+
+def test_evaluate_gate_requires_servers_for_shared_service_account_policy_checks():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), block_shared_service_account=True)
+
+
+def test_evaluate_gate_requires_servers_for_credential_policy_checks():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), minimum_credential_controls=2)
 
 
 def test_evaluate_gate_blocks_public_servers_without_auth_when_enabled():
@@ -462,6 +487,93 @@ def test_evaluate_gate_passes_when_command_servers_meet_control_floor():
         minimum_tier="caution",
         servers=servers,
         minimum_command_controls=2,
+    )
+
+    assert passed is True
+    assert reasons == []
+
+
+def test_evaluate_gate_blocks_shared_service_accounts_when_enabled():
+    servers = [
+        Server(
+            name="shared-creds",
+            permissions=["issues:update", "network:http"],
+            stars=25,
+            open_issues=3,
+            last_commit_days_ago=8,
+            license="MIT",
+            maintainers=2,
+            auth_required=True,
+            exposed_publicly=False,
+            credential_posture="shared-service-account",
+            credential_controls=["scoped_tokens"],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        block_shared_service_account=True,
+    )
+
+    assert passed is False
+    assert any("shared-service-account" in r for r in reasons)
+
+
+def test_evaluate_gate_blocks_risk_surface_servers_with_insufficient_credential_controls():
+    servers = [
+        Server(
+            name="public-service-account",
+            permissions=["issues:update", "network:http"],
+            stars=25,
+            open_issues=3,
+            last_commit_days_ago=8,
+            license="MIT",
+            maintainers=2,
+            auth_required=True,
+            exposed_publicly=True,
+            credential_posture="service-account",
+            credential_controls=["scoped_tokens"],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        minimum_credential_controls=2,
+    )
+
+    assert passed is False
+    assert any("credential controls" in r for r in reasons)
+
+
+def test_evaluate_gate_passes_when_credential_controls_are_met():
+    servers = [
+        Server(
+            name="public-user-bound",
+            permissions=["issues:update", "network:http"],
+            stars=25,
+            open_issues=3,
+            last_commit_days_ago=8,
+            license="MIT",
+            maintainers=2,
+            auth_required=True,
+            exposed_publicly=True,
+            credential_posture="per-user",
+            credential_controls=["scoped_tokens", "short_lived_tokens"],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        minimum_credential_controls=2,
     )
 
     assert passed is True
