@@ -187,6 +187,39 @@ def test_credential_controls_raise_score_for_risk_surface_server():
     )
 
 
+def test_supply_chain_controls_raise_score_for_risk_surface_server():
+    base = {
+        "name": "marketplace-helper",
+        "permissions": ["issues:update", "network:http"],
+        "stars": 90,
+        "open_issues": 4,
+        "last_commit_days_ago": 12,
+        "license": "MIT",
+        "maintainers": 2,
+        "auth_required": True,
+        "exposed_publicly": True,
+    }
+
+    without_controls = score_server(Server(**base, supply_chain_controls=[]))
+    with_controls = score_server(
+        Server(
+            **base,
+            supply_chain_controls=[
+                "pinned_version",
+                "signed_artifacts",
+                "verified_publisher",
+                "vuln_scanning",
+            ],
+        )
+    )
+
+    assert with_controls.score > without_controls.score
+    assert with_controls.breakdown.supply_chain_adjustment > (
+        without_controls.breakdown.supply_chain_adjustment
+    )
+    assert with_controls.breakdown.supply_chain_label in {"moderate", "strong"}
+
+
 def test_command_capable_server_is_penalized_without_execution_safeguards():
     base = {
         "name": "command-runner",
@@ -276,6 +309,7 @@ def test_parse_servers_supports_list_input_and_boolean_strings():
                 "prompt_injection_controls": "allowlist_only_tools,tool_argument_validation",
                 "credential_posture": "shared_service_account",
                 "credential_controls": "scoped_tokens,short_lived_tokens",
+                "supply_chain_controls": "pinned_version,signed_artifacts",
             }
         ]
     )
@@ -290,3 +324,4 @@ def test_parse_servers_supports_list_input_and_boolean_strings():
     ]
     assert servers[0].credential_posture == "shared_service_account"
     assert servers[0].credential_controls == ["scoped_tokens", "short_lived_tokens"]
+    assert servers[0].supply_chain_controls == ["pinned_version", "signed_artifacts"]

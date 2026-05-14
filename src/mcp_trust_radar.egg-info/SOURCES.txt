@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/mcp_trust_radar/__init__.py
+src/mcp_trust_radar/attestation.py
 src/mcp_trust_radar/cli.py
 src/mcp_trust_radar/github_client.py
 src/mcp_trust_radar/models.py
@@ -12,5 +13,6 @@ src/mcp_trust_radar.egg-info/dependency_links.txt
 src/mcp_trust_radar.egg-info/entry_points.txt
 src/mcp_trust_radar.egg-info/requires.txt
 src/mcp_trust_radar.egg-info/top_level.txt
+tests/test_attestation.py
 tests/test_cli.py
 tests/test_scoring.py

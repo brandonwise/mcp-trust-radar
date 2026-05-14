@@ -6,7 +6,7 @@ Quick trust scoring for MCP servers.
 
 > Should this server run in my environment right now?
 
-It scores servers using permission risk, authentication posture, public exposure risk, prompt-injection hardening signals, command-execution safeguards, repo freshness, issue pressure, maintainer depth, and license posture.
+It scores servers using permission risk, authentication posture, public exposure risk, prompt-injection hardening signals, command-execution safeguards, supply-chain controls, repo freshness, issue pressure, maintainer depth, and license posture.
 
 ## Why this matters
 
@@ -25,6 +25,7 @@ This project gives you a repeatable first-pass filter so you can:
 - Public exposure posture (`exposed_publicly`)
 - Transport security posture (`tls_enforced`) for public endpoints
 - Credential posture (`credential_posture`) and credential hygiene controls (`credential_controls`)
+- Supply-chain controls (`supply_chain_controls`) for pinning, artifact integrity, publisher verification, and scanning
 - Prompt-injection hardening controls (`prompt_injection_controls`)
 - Command-execution safeguard posture (allowlist + human approval controls for command-capable servers)
 - Maintenance health (how stale the repo is)
@@ -61,12 +62,13 @@ You can tighten or loosen the release gate with policy flags:
 - `--minimum-command-controls N`: fail if any command-capable server declares fewer than N recognized controls
 - `--block-shared-service-account`: fail if any server declares shared-service-account credentials
 - `--minimum-credential-controls N`: fail if any medium/high-risk or public server declares fewer than N recognized credential controls
+- `--minimum-supply-chain-controls N`: fail if any medium/high-risk or public server declares fewer than N recognized supply-chain controls
 - `--block-public-command-execution`: fail if any public server declares command-execution permissions (`exec`, `shell`, `command`, etc.)
 - `--min-agent-trust N`: fail if attested agent trust score is below N
 - `--max-attestation-age S`: fail if attestation is older than S seconds
 - `--on-missing-attestation [ignore|warn|fail]`: behavior when attestation data is missing while attestation policy is configured (default: `warn`)
 
-`internet-facing` and `strict` presets enable `--block-public-without-tls`, `--block-public-command-execution`, and `--block-shared-service-account` by default.
+`internet-facing` and `strict` presets also turn on public TLS, public command-execution, shared-credential, and minimum control-coverage gates by default.
 
 Examples:
 
@@ -88,6 +90,9 @@ mcp-radar score --input examples/servers.json --block-public-without-tls
 
 # Block shared service-account credentials and require 2 credential hygiene controls
 mcp-radar score --input examples/servers.json --block-shared-service-account --minimum-credential-controls 2
+
+# Block marketplace-style servers that do not declare at least 2 provenance controls
+mcp-radar score --input examples/servers.json --minimum-supply-chain-controls 2
 
 # Require external agent trust score and fresh attestation
 mcp-radar score \
@@ -179,6 +184,43 @@ Scoring behavior:
     "tool_description_sanitization",
     "tool_argument_validation",
     "human_approval_for_writes"
+  ]
+}
+```
+
+## Input fields for supply-chain posture
+
+`supply_chain_controls` is optional. It accepts either a JSON array or a comma-separated string.
+
+Recognized controls:
+
+- `pinned_version`
+- `signed_artifacts`
+- `verified_publisher`
+- `internal_mirror`
+- `sbom_available`
+- `vuln_scanning`
+
+Scoring behavior:
+
+- Missing field = no supply-chain adjustment (backward compatible)
+- High-risk/public servers with weak or empty provenance controls lose points
+- Better control coverage earns a positive adjustment
+- `internet-facing` and `strict` presets can gate on minimum supply-chain control coverage
+
+This is meant to capture the real-world difference between "someone pasted a random MCP package into a client" and "this server ships through a governed path with pinned, verifiable artifacts."
+
+```json
+{
+  "name": "marketplace-helper",
+  "permissions": ["issues:update", "network:http"],
+  "auth_required": true,
+  "exposed_publicly": true,
+  "supply_chain_controls": [
+    "pinned_version",
+    "signed_artifacts",
+    "verified_publisher",
+    "vuln_scanning"
   ]
 }
 ```
