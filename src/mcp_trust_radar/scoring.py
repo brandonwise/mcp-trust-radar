@@ -50,6 +50,15 @@ CREDENTIAL_CONTROLS = {
     "per_request_reauth",
 }
 
+SUPPLY_CHAIN_CONTROLS = {
+    "pinned_version",
+    "signed_artifacts",
+    "verified_publisher",
+    "internal_mirror",
+    "sbom_available",
+    "vuln_scanning",
+}
+
 CREDENTIAL_POSTURE_ALIASES = {
     "per-user": "per-user",
     "per-user-identity": "per-user",
@@ -109,6 +118,27 @@ def normalize_credential_controls(controls: Optional[List[str]]) -> Tuple[List[s
             continue
         seen.add(key)
         if key in CREDENTIAL_CONTROLS:
+            normalized.append(key)
+        else:
+            unknown.append(control)
+
+    return normalized, unknown
+
+
+def normalize_supply_chain_controls(controls: Optional[List[str]]) -> Tuple[List[str], List[str]]:
+    if not controls:
+        return [], []
+
+    normalized: List[str] = []
+    unknown: List[str] = []
+    seen = set()
+
+    for control in controls:
+        key = control.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        if key in SUPPLY_CHAIN_CONTROLS:
             normalized.append(key)
         else:
             unknown.append(control)
@@ -332,6 +362,65 @@ def prompt_injection_posture_adjustment(
     return adjustment, label, notes
 
 
+def supply_chain_posture_adjustment(
+    controls: Optional[List[str]], permission_label: str, exposed_publicly: Optional[bool]
+) -> Tuple[int, str, List[str]]:
+    notes: List[str] = []
+
+    if controls is None:
+        notes.append("Supply-chain controls not provided")
+        return 0, "unknown", notes
+
+    normalized, unknown = normalize_supply_chain_controls(controls)
+    coverage = len(normalized)
+    risk_surface = permission_label in {"medium", "high"} or exposed_publicly is True
+
+    if risk_surface:
+        if coverage >= 4:
+            adjustment = 5
+            label = "strong"
+        elif coverage == 3:
+            adjustment = 2
+            label = "moderate"
+        elif coverage == 2:
+            adjustment = -1
+            label = "partial"
+        elif coverage == 1:
+            adjustment = -5
+            label = "weak"
+        else:
+            adjustment = -9
+            label = "weak"
+    else:
+        if coverage >= 4:
+            adjustment = 3
+            label = "strong"
+        elif coverage >= 2:
+            adjustment = 2
+            label = "moderate"
+        elif coverage == 1:
+            adjustment = 1
+            label = "partial"
+        else:
+            adjustment = 0
+            label = "none"
+
+    if coverage:
+        notes.append(f"Supply-chain controls declared: {', '.join(sorted(normalized))}")
+    else:
+        notes.append("No supply-chain controls declared")
+
+    if unknown:
+        notes.append(
+            f"Unrecognized supply-chain controls ignored: {', '.join(sorted(str(item) for item in unknown))}"
+        )
+
+    if risk_surface and coverage < 2:
+        notes.append("High-risk/public server should declare at least 2 supply-chain controls")
+
+    return adjustment, label, notes
+
+
 def command_safeguard_adjustment(
     permissions: List[str], controls: Optional[List[str]]
 ) -> Tuple[int, List[str]]:
@@ -406,6 +495,13 @@ def score_server(server: Server) -> TrustScore:
         permission_label,
         server.exposed_publicly,
     )
+    supply_chain_adjustment, supply_chain_label, supply_chain_notes = (
+        supply_chain_posture_adjustment(
+            server.supply_chain_controls,
+            permission_label,
+            server.exposed_publicly,
+        )
+    )
     injection_adjustment, injection_label, injection_notes = prompt_injection_posture_adjustment(
         server.prompt_injection_controls, permission_label, server.exposed_publicly
     )
@@ -431,6 +527,7 @@ def score_server(server: Server) -> TrustScore:
     score += license_adjustment
     score += maintainer_bonus
     score += credential_adjustment
+    score += supply_chain_adjustment
     score += injection_adjustment
     score += command_adjustment
     score = max(0, min(score, 100))
@@ -452,6 +549,9 @@ def score_server(server: Server) -> TrustScore:
         credential_posture_adjustment=credential_adjustment,
         credential_posture_label=credential_label,
         credential_posture_notes=credential_notes,
+        supply_chain_adjustment=supply_chain_adjustment,
+        supply_chain_label=supply_chain_label,
+        supply_chain_notes=supply_chain_notes,
         injection_adjustment=injection_adjustment,
         injection_label=injection_label,
         injection_notes=injection_notes,

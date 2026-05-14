@@ -20,6 +20,7 @@ class Server:
     prompt_injection_controls: Optional[List[str]] = None
     credential_posture: Optional[str] = None
     credential_controls: Optional[List[str]] = None
+    supply_chain_controls: Optional[List[str]] = None
 
 
 @dataclass
@@ -40,6 +41,9 @@ class RiskBreakdown:
     credential_posture_adjustment: int
     credential_posture_label: str
     credential_posture_notes: List[str]
+    supply_chain_adjustment: int
+    supply_chain_label: str
+    supply_chain_notes: List[str]
     injection_adjustment: int
     injection_label: str
     injection_notes: List[str]
@@ -110,6 +114,11 @@ def parse_servers(data: Any) -> List[Server]:
             if "credential_controls" in raw
             else None
         )
+        supply_chain_controls = (
+            _as_string_list(raw.get("supply_chain_controls"), "supply_chain_controls")
+            if "supply_chain_controls" in raw
+            else None
+        )
         credential_posture = (
             str(raw.get("credential_posture")).strip()
             if raw.get("credential_posture") is not None
@@ -138,6 +147,7 @@ def parse_servers(data: Any) -> List[Server]:
                 prompt_injection_controls=controls,
                 credential_posture=credential_posture,
                 credential_controls=credential_controls,
+                supply_chain_controls=supply_chain_controls,
             )
         )
 

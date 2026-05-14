@@ -51,6 +51,7 @@ def test_parser_score_command():
     assert args.minimum_command_controls is None
     assert args.block_shared_service_account is False
     assert args.minimum_credential_controls is None
+    assert args.minimum_supply_chain_controls is None
     assert args.agent_attestation is None
     assert args.min_agent_trust is None
     assert args.max_attestation_age is None
@@ -73,6 +74,7 @@ def test_resolve_policy_settings_balanced_defaults():
     assert policy["minimum_command_controls"] is None
     assert policy["block_shared_service_account"] is False
     assert policy["minimum_credential_controls"] is None
+    assert policy["minimum_supply_chain_controls"] is None
 
 
 def test_resolve_policy_settings_strict_defaults():
@@ -91,6 +93,7 @@ def test_resolve_policy_settings_strict_defaults():
     assert policy["minimum_command_controls"] == 2
     assert policy["block_shared_service_account"] is True
     assert policy["minimum_credential_controls"] == 3
+    assert policy["minimum_supply_chain_controls"] == 3
 
 
 def test_resolve_policy_settings_allows_individual_overrides():
@@ -108,6 +111,8 @@ def test_resolve_policy_settings_allows_individual_overrides():
             "5",
             "--minimum-credential-controls",
             "4",
+            "--minimum-supply-chain-controls",
+            "4",
         ]
     )
 
@@ -123,6 +128,7 @@ def test_resolve_policy_settings_allows_individual_overrides():
     assert policy["minimum_command_controls"] == 2
     assert policy["block_shared_service_account"] is True
     assert policy["minimum_credential_controls"] == 4
+    assert policy["minimum_supply_chain_controls"] == 4
 
 
 def test_evaluate_gate_blocks_caution_by_default():
@@ -174,6 +180,11 @@ def test_evaluate_gate_rejects_invalid_minimum_credential_controls():
         evaluate_gate(_sample_scores(), minimum_credential_controls=6)
 
 
+def test_evaluate_gate_rejects_invalid_minimum_supply_chain_controls():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), minimum_supply_chain_controls=7)
+
+
 def test_evaluate_gate_requires_servers_for_public_policy_checks():
     with pytest.raises(ValueError):
         evaluate_gate(_sample_scores(), block_public_without_auth=True)
@@ -207,6 +218,11 @@ def test_evaluate_gate_requires_servers_for_shared_service_account_policy_checks
 def test_evaluate_gate_requires_servers_for_credential_policy_checks():
     with pytest.raises(ValueError):
         evaluate_gate(_sample_scores(), minimum_credential_controls=2)
+
+
+def test_evaluate_gate_requires_servers_for_supply_chain_policy_checks():
+    with pytest.raises(ValueError):
+        evaluate_gate(_sample_scores(), minimum_supply_chain_controls=2)
 
 
 def test_evaluate_gate_blocks_public_servers_without_auth_when_enabled():
@@ -574,6 +590,66 @@ def test_evaluate_gate_passes_when_credential_controls_are_met():
         minimum_tier="caution",
         servers=servers,
         minimum_credential_controls=2,
+    )
+
+    assert passed is True
+    assert reasons == []
+
+
+def test_evaluate_gate_blocks_risk_surface_servers_with_insufficient_supply_chain_controls():
+    servers = [
+        Server(
+            name="public-marketplace-bot",
+            permissions=["issues:update", "network:http"],
+            stars=25,
+            open_issues=3,
+            last_commit_days_ago=8,
+            license="MIT",
+            maintainers=2,
+            auth_required=True,
+            exposed_publicly=True,
+            supply_chain_controls=["pinned_version"],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        minimum_supply_chain_controls=2,
+    )
+
+    assert passed is False
+    assert any("supply-chain controls" in r for r in reasons)
+
+
+def test_evaluate_gate_passes_when_supply_chain_controls_are_met():
+    servers = [
+        Server(
+            name="public-verified-bot",
+            permissions=["issues:update", "network:http"],
+            stars=25,
+            open_issues=3,
+            last_commit_days_ago=8,
+            license="MIT",
+            maintainers=2,
+            auth_required=True,
+            exposed_publicly=True,
+            supply_chain_controls=[
+                "pinned_version",
+                "signed_artifacts",
+                "verified_publisher",
+            ],
+        )
+    ]
+    scores = [score_server(server) for server in servers]
+
+    passed, reasons = evaluate_gate(
+        scores,
+        minimum_tier="caution",
+        servers=servers,
+        minimum_supply_chain_controls=2,
     )
 
     assert passed is True

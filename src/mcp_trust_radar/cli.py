@@ -16,6 +16,7 @@ from .scoring import (
     normalize_credential_controls,
     normalize_credential_posture,
     normalize_prompt_injection_controls,
+    normalize_supply_chain_controls,
     permission_risk,
     score_all,
 )
@@ -38,6 +39,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_command_controls": None,
         "block_shared_service_account": False,
         "minimum_credential_controls": None,
+        "minimum_supply_chain_controls": None,
     },
     "internet-facing": {
         "minimum_tier": "review",
@@ -50,6 +52,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_command_controls": 2,
         "block_shared_service_account": True,
         "minimum_credential_controls": 2,
+        "minimum_supply_chain_controls": 2,
     },
     "strict": {
         "minimum_tier": "trusted",
@@ -62,6 +65,7 @@ POLICY_PRESETS: Dict[str, Dict[str, object]] = {
         "minimum_command_controls": 2,
         "block_shared_service_account": True,
         "minimum_credential_controls": 3,
+        "minimum_supply_chain_controls": 3,
     },
 }
 
@@ -91,6 +95,11 @@ def resolve_policy_settings(args: argparse.Namespace) -> Dict[str, object]:
         if args.minimum_credential_controls is not None
         else preset["minimum_credential_controls"]
     )
+    minimum_supply_chain_controls = (
+        args.minimum_supply_chain_controls
+        if args.minimum_supply_chain_controls is not None
+        else preset["minimum_supply_chain_controls"]
+    )
 
     return {
         "minimum_tier": minimum_tier,
@@ -107,6 +116,7 @@ def resolve_policy_settings(args: argparse.Namespace) -> Dict[str, object]:
         "block_shared_service_account": args.block_shared_service_account
         or bool(preset["block_shared_service_account"]),
         "minimum_credential_controls": minimum_credential_controls,
+        "minimum_supply_chain_controls": minimum_supply_chain_controls,
     }
 
 
@@ -191,6 +201,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     cmd.add_argument(
+        "--minimum-supply-chain-controls",
+        type=int,
+        help=(
+            "Fail when any medium/high-risk or publicly exposed server has fewer than "
+            "N recognized supply-chain controls (0-6)."
+        ),
+    )
+    cmd.add_argument(
         "--agent-attestation",
         help=(
             "Optional path to agent attestation JSON. "
@@ -246,6 +264,7 @@ def evaluate_gate(
     minimum_command_controls: Optional[int] = None,
     block_shared_service_account: bool = False,
     minimum_credential_controls: Optional[int] = None,
+    minimum_supply_chain_controls: Optional[int] = None,
 ) -> Tuple[bool, List[str]]:
     if minimum_tier not in TIER_RANK:
         raise ValueError(f"Unknown tier: {minimum_tier}")
@@ -264,6 +283,9 @@ def evaluate_gate(
 
     if minimum_credential_controls is not None and not (0 <= minimum_credential_controls <= 5):
         raise ValueError("--minimum-credential-controls must be between 0 and 5")
+
+    if minimum_supply_chain_controls is not None and not (0 <= minimum_supply_chain_controls <= 6):
+        raise ValueError("--minimum-supply-chain-controls must be between 0 and 6")
 
     reasons: List[str] = []
 
@@ -296,6 +318,7 @@ def evaluate_gate(
         or minimum_command_controls is not None
         or block_shared_service_account
         or minimum_credential_controls is not None
+        or minimum_supply_chain_controls is not None
     ):
         if servers is None:
             raise ValueError("servers are required for posture policy checks")
@@ -443,6 +466,30 @@ def evaluate_gate(
                     f"{len(weak_credentials)} risk-surface server(s) declared fewer than {minimum_credential_controls} credential controls: {examples}"
                 )
 
+        if minimum_supply_chain_controls is not None:
+            weak_supply_chain = []
+            for server in servers:
+                _, permission_label, _ = permission_risk(server.permissions)
+                risk_surface = server.exposed_publicly is True or permission_label in {"medium", "high"}
+                if not risk_surface:
+                    continue
+
+                normalized_controls, _ = normalize_supply_chain_controls(server.supply_chain_controls)
+                if len(normalized_controls) < minimum_supply_chain_controls:
+                    posture = "public" if server.exposed_publicly is True else f"{permission_label}-risk permissions"
+                    weak_supply_chain.append((server.name, len(normalized_controls), posture))
+
+            if weak_supply_chain:
+                examples = ", ".join(
+                    f"{name}({count}; {posture})"
+                    for name, count, posture in weak_supply_chain[:3]
+                )
+                if len(weak_supply_chain) > 3:
+                    examples += ", ..."
+                reasons.append(
+                    f"{len(weak_supply_chain)} risk-surface server(s) declared fewer than {minimum_supply_chain_controls} supply-chain controls: {examples}"
+                )
+
     return len(reasons) == 0, reasons
 
 
@@ -492,6 +539,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             block_shared_service_account=bool(policy_settings["block_shared_service_account"]),
             minimum_credential_controls=cast(
                 Optional[int], policy_settings["minimum_credential_controls"]
+            ),
+            minimum_supply_chain_controls=cast(
+                Optional[int], policy_settings["minimum_supply_chain_controls"]
             ),
         )
         if not passed:
